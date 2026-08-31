@@ -7,7 +7,7 @@ pilot: `AZ-claude/slot`
 
 ## 1. 結論と境界
 
-v1 は、`/slot` 専用設定を読む単一の Node.js/TypeScript local daemon とする。daemon は GitHub Issue と Git/worktree/Codex CLI の事実を機械的に扱い、LLM を呼ばない。実装の独立 code review は必ず別 Luna session が行い、Terra はその後の semantic approval と merge にだけ使う。
+v1 は、`/slot` 専用設定を読む単一の Node.js/TypeScript local daemon とする。daemon は GitHub Issue と Git/worktree/Codex CLI の事実を機械的に扱い、LLM を呼ばない。実装の独立 code review は implementation Luna が起動する read-only reviewer subagent を標準とし、Terra はその後の semantic approval と merge にだけ使う。
 
 実装の正本は Git の task manifest と task-board である。GitHub Issue はその manifest の execution card であり、仕様本文を複製しない。daemon は merge を実行しない。Luna と Terra の既存 Git operating rules を prompt に含め、Terra が APPROVE 後に既存ルールに従い merge/push する。
 
@@ -79,7 +79,7 @@ GitHub Issues <── poll/reconcile ─ scheduler ──> worktree manager
                                       │                    │
                                       └── validator <──────┘
                                                 │
-                                  independent Luna review
+                                  reviewer subagent
                                     /                 \
                                REWORK                 APPROVE
                                   │                      │
@@ -129,9 +129,9 @@ Luna exit は成功宣言ではない。validator が LLM なしで以下を集�
 
 ### 5.4 必須の独立 Luna review
 
-machine validation が PASS した task は、例外なく別の Luna session に review-only worktree を作って渡す。これは task-board の task ごとに追加指定しない v1 の共通 invariant であり、**全 task の完了条件**である。daemon は implementation dispatch と同時に review slot を予約し、worker-done の packet ができ次第 review prompt を自動投入する。人間や管理 session が review 用 prompt をコピー/作成する運用は持ち込まない。
+machine validation が PASS した task は、例外なく implementation Luna が同一 task 内で起動する read-only reviewer subagent に渡す。reviewer は別の agent context で動き、implementation の reasoning/history を継承せず、task scope・source branch/HEAD・review packet だけを受け取る。これは task-board の task ごとに追加指定しない v1 の共通 invariant であり、**全 task の完了条件**である。人間や管理 session が review 用 prompt をコピー/作成する運用は持ち込まない。
 
-review request の発信者は Terra ではない。implementation Luna は commit/push と machine validation に必要な structured completion result を返し、その result に含まれる `independentReview: required` を daemon が機械的に検知する。daemon はその task/HEAD/packet を引き継いだ別 Luna session を起動するだけであり、Terra は独立 review の起動・指示・再指示を一切行わない。これは「Luna が完了を渡す → Luna が独立 review する」という実行契約で、daemon は non-LLM transport である。
+review request の発信者は Terra ではない。implementation Luna は commit/push と machine validation に必要な structured completion result を返し、その result に含まれる `independentReview: required` を契機に、自身の reviewer subagent を標準 review prompt で起動する。Terra は独立 review の起動・指示・再指示を一切行わない。daemon は session/process/checkpoint を追跡する non-LLM transport に留まる。
 
 review Luna は source branch/HEAD と review packet を読み、コードを変更せず、task scope・completion criteria・allowed paths・machine evidence を独立に検証する。結果は次の二値に固定する。
 
@@ -140,7 +140,7 @@ APPROVE
 REWORK: concrete findings (severity, file/line, reproduction, required test)
 ```
 
-REWORK は同じ implementation Luna session/worktree/branch へ自動で渡し、machine validation と独立 Luna review を再度行う。独立 Luna review の APPROVE を得るまで task は完了ではない。APPROVE された task だけを Terra review queue へ送る。`reviewing` Issue state は checkpoint の `reviewStage: luna-independent | terra-semantic` で下位段階を一意にするため、追加 label は作らない。
+REWORK は同じ implementation Luna session/worktree/branch へ自動で渡し、machine validation と reviewer subagent を再度実行する。reviewer APPROVE を得るまで task は完了ではない。APPROVE された task だけを Terra review queue へ送る。`reviewing` Issue state は checkpoint の `reviewStage: luna-subagent | terra-semantic` で下位段階を一意にするため、追加 label は作らない。
 
 ### 5.5 Terra semantic review と merge
 
