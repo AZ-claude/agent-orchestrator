@@ -7,7 +7,7 @@ pilot: `AZ-claude/slot`
 
 ## 1. 結論と境界
 
-v1 は、`/slot` 専用設定を読む単一の Node.js/TypeScript local daemon とする。daemon は GitHub Issue と Git/worktree/Codex CLI の事実を機械的に扱い、LLM を呼ばない。意味判断は、既存の Terra session に review packet を送ったときだけ発生する。
+v1 は、`/slot` 専用設定を読む単一の Node.js/TypeScript local daemon とする。daemon は GitHub Issue と Git/worktree/Codex CLI の事実を機械的に扱い、LLM を呼ばない。実装の独立 code review は必ず別 Luna session が行い、Terra はその後の semantic approval と merge にだけ使う。
 
 実装の正本は Git の task manifest と task-board である。GitHub Issue はその manifest の execution card であり、仕様本文を複製しない。daemon は merge を実行しない。Luna と Terra の既存 Git operating rules を prompt に含め、Terra が APPROVE 後に既存ルールに従い merge/push する。
 
@@ -79,7 +79,11 @@ GitHub Issues <── poll/reconcile ─ scheduler ──> worktree manager
                                       │                    │
                                       └── validator <──────┘
                                                 │
-                                           review packet
+                                  independent Luna review
+                                    /                 \
+                               REWORK                 APPROVE
+                                  │                      │
+                           resume same Luna        review packet
                                                 │
                                       Terra session runner
                                       /        |         \
@@ -123,7 +127,20 @@ Luna exit は成功宣言ではない。validator が LLM なしで以下を集�
 
 すべて PASS なら `worker-done` として review packet を作る。失敗なら、技術的に再開可能な failure は `paused`、scope mismatch や retry exhausted は `blocked-human` とする。validator は code correctness を判定しない。
 
-### 5.4 Terra review と merge
+### 5.4 必須の独立 Luna review
+
+machine validation が PASS した task は、例外なく別の Luna session に review-only worktree を作って渡す。これは task-board の task ごとに追加指定しない v1 の共通 invariant である。daemon は implementation dispatch と同時に review slot を予約し、worker-done の packet ができ次第 review prompt を自動投入する。人間や管理 session が review 用 prompt をコピー/作成する運用は持ち込まない。
+
+review Luna は source branch/HEAD と review packet を読み、コードを変更せず、task scope・completion criteria・allowed paths・machine evidence を独立に検証する。結果は次の二値に固定する。
+
+```text
+APPROVE
+REWORK: concrete findings (severity, file/line, reproduction, required test)
+```
+
+REWORK は同じ implementation Luna session/worktree/branch へ自動で渡し、machine validation と独立 Luna review を再度行う。APPROVE された task だけを Terra review queue へ送る。`reviewing` Issue state は checkpoint の `reviewStage: luna-independent | terra-semantic` で下位段階を一意にするため、追加 label は作らない。
+
+### 5.5 Terra semantic review と merge
 
 review packet は canonical task ref、branch、HEAD、push、cleanliness、changed files、scope/test/dependency 結果、前回 rework を持つ短い JSON/Markdown artifact である。daemon は保存済み Terra session に、機械事実と以下だけを要求する。
 
@@ -133,9 +150,9 @@ For REWORK/BLOCKED_HUMAN, include a concrete reason/instruction.
 For APPROVE, merge/push by the target repository's existing rules before replying.
 ```
 
-Terra response は JSON schema で parse する。APPROVE は `origin/<base>` が task HEAD を含むことを daemon が検証して初めて Issue close と dependency unlock になる。REWORK は同 Issue の `rework` 状態と instruction を checkpoint/Issue に記録し、同じ Luna session に渡す。BLOCKED_HUMAN は dispatch を止める。
+Terra response は JSON schema で parse する。APPROVE は `origin/<base>` が task HEAD を含むことを daemon が検証して初めて Issue close と dependency unlock になる。REWORK は同 Issue の `rework` 状態と instruction を checkpoint/Issue に記録し、同じ Luna session に渡す。その後は machine validation と独立 Luna review を再度必須とする。BLOCKED_HUMAN は dispatch を止める。
 
-### 5.5 Reconcile と rate limit
+### 5.6 Reconcile と rate limit
 
 checkpoint は `issueNumber`, `taskId`, `phase`, `attempt`, `sessionId`, `branch`, `worktree`, `pid`, `lastHead`, `retryAt` のみを持つ。起動時には Issue、checkpoint、worktree、Git remote、process existence を照合する。
 
@@ -152,7 +169,7 @@ Codex JSONL/exit output で実証した rate-limit signature を AO-01 が adapt
 ## 6. 安全性・運用契約
 
 - daemon が行う Git write は task worktree/branch の作成だけであり、target `main` の merge、production DB、scheduler、deploy は行わない。
-- `EXCLUSIVE` は実行中 Luna task がゼロでなければ開始せず、開始中は他 task を開始しない。`SAFE` は `maxLunaWorkers` に制限する。
+- `EXCLUSIVE` は実行中 Luna task がゼロでなければ開始せず、開始中は他 task を開始しない。`SAFE` は `maxLunaWorkers` に制限する。implementation Luna と independent-review Luna は同じ bounded worker pool を使う。
 - Human gate は Issue の明示 marker/label がない限り解除されない。「以前の会話で GO だった」ことを daemon は推論しない。
 - filesystem state の更新は temp file + fsync + rename で atomic にする。secret/token は checkpoint・Issue・log に書かない。
 - `launchd` install は daemon の通常起動と別 command にし、runbook に従って一度だけ明示的に行う。daemon 自体は `/slot` の Windows Task Scheduler を作成・変更しない。
@@ -165,4 +182,4 @@ Symphony 系の Issue polling/worktree/concurrency/reconcile という概念は�
 
 ## 8. pilot acceptance
 
-fixture-backed fake `gh`/`git`/`codex` adapter と disposable local Git remote で unit/integration を先に作る。その後 `/slot` の production を触らない documentation-only または disposable test task を二つ用意し、SAFE parallel、EXCLUSIVE serialization、worker exit→validation→Terra review→merge verification、REWORK、rate-limit resume、daemon restart reconcile を証明する。production DB/Scheduler を含む task は明示 Human Gate のまま v1 acceptance から除外する。
+fixture-backed fake `gh`/`git`/`codex` adapter と disposable local Git remote で unit/integration を先に作る。その後 `/slot` の production を触らない documentation-only または disposable test task を二つ用意し、SAFE parallel、EXCLUSIVE serialization、worker exit→validation→independent Luna review→Terra semantic review→merge verification、Luna/Terra の REWORK、rate-limit resume、daemon restart reconcile を証明する。production DB/Scheduler を含む task は明示 Human Gate のまま v1 acceptance から除外する。

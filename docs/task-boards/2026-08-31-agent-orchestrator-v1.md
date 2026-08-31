@@ -12,6 +12,7 @@
 - daemon の LLM token 消費は 0。Luna/Terra 呼出しは task execution/review のみで、polling・DAG・validation・recovery に LLM を使わない。
 - daemon は merge、production DB mutation、`/slot` Windows Scheduler、deploy を実行しない。
 - `/slot` の既存 AGENTS/common operating rules を Luna/Terra prompt と Terra merge に優先適用する。
+- 全実装 task は、machine validation PASS 後に別 Luna session の independent review を必須とする。review session は実装 task の dispatch 時点で自動予約し、REWORK は同じ implementation Luna session へ自動で戻す。task ごとの review 指示や人間による prompt 転送は不要である。
 - `AO-14` は `/slot` の disposable/documentation-only task だけで受入する。live runtime 変更は Human Gate の別 task とする。
 
 ## 1. 依存関係
@@ -41,7 +42,7 @@ AO-16 (launchd) depends on AO-13 and is independent of AO-14/15.
 | AO-08 | machine validator と review packet | PLANNED | AO-02, AO-03, AO-06 | SAFE | push/clean/changed paths/test/dependency の PASS/FAIL evidence と compact packet を生成する。semantic review/merge はしない。 |
 | AO-09 | deterministic scheduler | PLANNED | AO-04, AO-05, AO-07, AO-08 | EXCLUSIVE | ready 条件、bounded SAFE concurrency、EXCLUSIVE serialization、state transition の table-driven test が PASS する。priority optimizer/lock framework は作らない。 |
 | AO-10 | Terra review runner/result parser | PLANNED | AO-01, AO-02 | SAFE | saved Terra session に packet を送信し、schema-valid APPROVE/REWORK/BLOCKED_HUMAN だけを受理する。new Terra session の自動作成はしない。 |
-| AO-11 | review/rework/merge-close controller | PLANNED | AO-09, AO-10 | EXCLUSIVE | APPROVE 後の remote-base ancestor 確認→Issue close、REWORK の same Luna session dispatch、BLOCKED_HUMAN stop を integration test で証明する。daemon merge は禁止。 |
+| AO-11 | independent Luna review/rework/merge-close controller | PLANNED | AO-09, AO-10 | EXCLUSIVE | machine validation→別 Luna review→Terra semantic approval の順序、Luna/Terra REWORK の same Luna session dispatch、Terra APPROVE 後の remote-base ancestor 確認→Issue close、BLOCKED_HUMAN stop を integration test で証明する。daemon merge は禁止。 |
 | AO-12 | startup reconcile と rate-limit pause | PLANNED | AO-04, AO-07, AO-08, AO-10 | SAFE | checkpoint/Issue/process/Git の代表不整合を安全に復元し、rate limit は pause→same session resume となる。reboot で完了済み task を再実行しない。 |
 | AO-13 | daemon CLI/logging/operational runbook | PLANNED | AO-09, AO-11, AO-12 | EXCLUSIVE | bootstrap/run-once/daemon/reconcile/status の CLI と privacy-safe log、operator runbook、failure diagnosis がある。web dashboard は作らない。 |
 | AO-14 | `/slot` non-production pilot acceptance | PLANNED | AO-13 | EXCLUSIVE | two SAFE tasks、EXCLUSIVE task、review/rework、restart/rate-limit fixture scenario を実証し、結果を Git に残す。production DB/Scheduler は触らない。 |
@@ -61,6 +62,7 @@ AO-16 (launchd) depends on AO-13 and is independent of AO-14/15.
 - manifest/Issue/checkpoint の不整合は silent dispatch せず fail closed にする。
 - state transition、GitHub API、DAG、process、validation、recovery は fixture/integration test で再現可能にする。
 - normal scheduler loop と validator に LLM invocation がないことを command-level test で確認する。
+- worker-done の task は Terra に送る前に必ず別 Luna の review-only session を通す。REWORK 後もこの review を省略しない。review dispatch は実装 dispatch と同じ共通 task contract から自動化し、task ごとの別指示を要求しない。
 - worker task は target repo の Git rules を読み、branch/worktree 内でのみ edit/test/commit/push を行う。
 - Issues は Git task-board のポインタであり、Issue 本文を仕様正本にしない。
 
