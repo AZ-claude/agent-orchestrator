@@ -31,8 +31,10 @@ test("package test dispatcher maps every supported selector to its compiled test
   const testScript = packageJson.scripts.test;
 
   assert.match(testScript, /\["config", "dist\/test\/config\.test\.js"\]/);
+  assert.match(testScript, /\["config-schema", "dist\/test\/config\.test\.js"\]/);
   assert.match(testScript, /\["codex-lifecycle", "dist\/test\/codex\/codex-lifecycle\.test\.js"\]/);
   assert.match(testScript, /\["manifest", "dist\/test\/manifest\/loader\.test\.js"\]/);
+  assert.match(testScript, /\["manifest-loader", "dist\/test\/manifest\/loader\.test\.js"\]/);
   assert.match(testScript, /Unknown test selector/);
 });
 
