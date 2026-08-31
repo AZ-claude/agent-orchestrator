@@ -8,7 +8,7 @@ handoff:
 tasks:
   - id: AO-01
     title: Codex CLI lifecycle contract spike
-    dependsOn: []
+    dependsOn: [AO-02]
     parallel: SAFE
     humanGate: false
     allowedPaths: [src/codex/**, test/fixtures/codex/**, test/codex/**]
@@ -22,7 +22,7 @@ tasks:
     test: npm test -- config
   - id: AO-03
     title: Canonical task manifest loader
-    dependsOn: []
+    dependsOn: [AO-02]
     parallel: SAFE
     humanGate: false
     allowedPaths: [src/manifest/**, test/manifest/**]

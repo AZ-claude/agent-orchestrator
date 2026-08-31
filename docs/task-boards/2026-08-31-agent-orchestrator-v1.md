@@ -17,10 +17,10 @@
 ## 1. 依存関係
 
 ```text
-AO-01 ─────┬─ AO-04 ─┬─ AO-07 ─┬─ AO-09 ─┬─ AO-11 ─┬─ AO-13 ─ AO-14 ─ AO-15
-AO-02 ─────┤          │          │          │          │
-AO-03 ─────┼─ AO-05 ──┘          │          └─ AO-12 ─┘
-AO-06 ─────┘                     │
+AO-02 ──┬─ AO-01 ─┬─ AO-04 ─┬─ AO-07 ─┬─ AO-09 ─┬─ AO-11 ─┬─ AO-13 ─ AO-14 ─ AO-15
+        │          │          │          │          │          │
+        ├─ AO-03 ─┼─ AO-05 ──┘          │          └─ AO-12 ─┘
+        └─ AO-06 ─┘                     │
 AO-08 ───────────────────────────┘
 AO-10 ─────────────────────────────────────────────┘
 
@@ -31,9 +31,9 @@ AO-16 (launchd) depends on AO-13 and is independent of AO-14/15.
 
 | ID | Task | 状態 | 依存 | Parallel | 完了条件 |
 |---|---|---|---|---|---|
-| AO-01 | Codex CLI lifecycle contract spike | PLANNED | — | SAFE | installed Codex の `exec --json` / `exec resume` から session ID・正常終了・rate-limit/crash の観測可能な契約を fixture と adapter test に固定する。未確認の output を推測しない。 |
+| AO-01 | Codex CLI lifecycle contract spike | PLANNED | AO-02 | SAFE | installed Codex の `exec --json` / `exec resume` から session ID・正常終了・rate-limit/crash の観測可能な契約を fixture と adapter test に固定する。未確認の output を推測しない。 |
 | AO-02 | Node/TS scaffold と設定/schema | PLANNED | — | SAFE | build/lint/test と pilot-only config、manifest/checkpoint/review-result schema が成立する。generic worker abstraction は作らない。 |
-| AO-03 | canonical task manifest loader | PLANNED | — | SAFE | YAML manifest を parse/validate し、duplicate ID/cycle/unknown dependency/invalid parallel を fail closed にする。Markdown は生成対象であり parser にしない。 |
+| AO-03 | canonical task manifest loader | PLANNED | AO-02 | SAFE | YAML manifest を parse/validate し、duplicate ID/cycle/unknown dependency/invalid parallel を fail closed にする。Markdown は生成対象であり parser にしない。 |
 | AO-04 | local checkpoint store | PLANNED | AO-01, AO-02 | SAFE | atomic write、state migration、retry/attempt/session fields、restart load を unit test で証明する。checkpoint に仕様・secret を保存しない。 |
 | AO-05 | GitHub Issue projector/reader | PLANNED | AO-02, AO-03 | SAFE | labels、parent/sub-issue、blocking relation、idempotent marker、排他的 state label、Issue snapshot を fake `gh` integration で証明する。Projects は使わない。 |
 | AO-06 | Git/worktree adapter | PLANNED | AO-02 | SAFE | task 専用 branch/worktree の作成・再利用、remote/HEAD/status/changed files/scope/ancestor 判定を disposable repo で証明する。main merge は実装しない。 |
@@ -50,7 +50,7 @@ AO-16 (launchd) depends on AO-13 and is independent of AO-14/15.
 
 ## 3. 実装順の運用
 
-1. AO-01〜03 で CLI と Git contract を確定し、推測した Codex output へ依存しない。
+1. AO-02 が test scaffold と strict schema の基盤を先に提供する。AO-01/AO-03 はこれを取り込んだ後に並列開始し、推測した Codex output へ依存しない。
 2. AO-04〜08 は fake external command/disposable repo を用いて並列に実装・reviewできる。
 3. AO-09〜13 で controller を統合する。AO-09/11/13 は state transition を触るため EXCLUSIVE とする。
 4. AO-14 は `/slot` main の稼働中作業と切り離した worktree、read-only/disposable task のみで行う。
