@@ -5,6 +5,17 @@ handoff:
   targetRepo: /Users/eita/projects/slot
   baseBranch: main
 
+# This contract is injected into every implementation-Luna prompt.  It is not
+# optional task prose: a worker must complete the review/rework loop itself.
+workerCompletionContract:
+  independentReview: required
+  reviewer: same-session-read-only-luna-subagent
+  reviewerContext: task-scope-source-head-review-packet-only
+  reviewerHistory: none
+  onRework: same-implementation-session-fix-validate-rereview
+  completion: reviewer-approve-required-before-terra
+  fallback: only-if-subagent-capability-unavailable
+
 tasks:
   - id: AO-01
     title: Codex CLI lifecycle contract spike

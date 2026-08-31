@@ -131,6 +131,8 @@ Luna exit は成功宣言ではない。validator が LLM なしで以下を集�
 
 machine validation が PASS した task は、例外なく implementation Luna が同一 task 内で起動する read-only reviewer subagent に渡す。reviewer は別の agent context で動き、implementation の reasoning/history を継承せず、task scope・source branch/HEAD・review packet だけを受け取る。これは task-board の task ごとに追加指定しない v1 の共通 invariant であり、**全 task の完了条件**である。人間や管理 session が review 用 prompt をコピー/作成する運用は持ち込まない。
 
+この不変条件を起動時に取りこぼさないため、canonical manifest は `workerCompletionContract` を持つ。dispatcher はこれを task 固有 prompt に必ず注入する。implementation Luna は `independentReview: required` を返すだけで終わってはならず、同じ session 内で reviewer subagent を起動し、`APPROVE` または capability failure を structured result として返す。後者のみが別 Luna session fallback を許可する根拠となる。
+
 review request の発信者は Terra ではない。implementation Luna は commit/push と machine validation に必要な structured completion result を返し、その result に含まれる `independentReview: required` を契機に、自身の reviewer subagent を標準 review prompt で起動する。Terra は独立 review の起動・指示・再指示を一切行わない。daemon は session/process/checkpoint を追跡する non-LLM transport に留まる。
 
 review Luna は source branch/HEAD と review packet を読み、コードを変更せず、task scope・completion criteria・allowed paths・machine evidence を独立に検証する。結果は次の二値に固定する。
