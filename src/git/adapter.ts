@@ -1,7 +1,7 @@
 import { execFile as nodeExecFile } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { promisify } from "node:util";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const execFile = promisify(nodeExecFile);
 
@@ -42,8 +42,12 @@ export class GitAdapter {
     await mkdir(join(stateRoot, "worktrees"), { recursive: true });
     const existing = await this.run("git", ["worktree", "list", "--porcelain"], { cwd: repo });
     if (existing.code !== 0) throw new GitCommandError("worktree list", [], existing);
-    const listed = parseWorktrees(existing.stdout).find((item) => item.path === path || item.branch === `refs/heads/${branch}`);
-    if (listed !== undefined) return { taskId, branch, path: listed.path };
+    const worktrees = parseWorktrees(existing.stdout);
+    const listedAtPath = worktrees.find((item) => samePath(item.path, path));
+    if (listedAtPath !== undefined && listedAtPath.branch !== `refs/heads/${branch}`) throw new Error(`worktree path is already assigned to ${listedAtPath.branch}`);
+    const listedAtBranch = worktrees.find((item) => item.branch === `refs/heads/${branch}`);
+    if (listedAtBranch !== undefined && !samePath(listedAtBranch.path, path)) throw new Error(`task branch is already assigned to ${listedAtBranch.path}`);
+    if (listedAtPath !== undefined) return { taskId, branch, path };
     const probe = await this.run("git", ["show-ref", "--verify", `refs/heads/${branch}`], { cwd: repo });
     const args = probe.code === 0 ? ["worktree", "add", path, branch] : ["worktree", "add", "-b", branch, path, `origin/${baseBranch}`];
     const added = await this.run("git", args, { cwd: repo });
@@ -93,8 +97,18 @@ export class GitAdapter {
 }
 
 export function matchesGlob(path: string, glob: string): boolean {
-  const escaped = glob.split("**").map((part) => part.split("*").map(escapeRegExp).join("[^/]*")).join(".*");
-  return new RegExp(`^${escaped}$`).test(path);
+  const segments = glob.split("/");
+  let pattern = "^";
+  for (const [index, segment] of segments.entries()) {
+    if (segment === "**") {
+      if (index > 0 && segments[index - 1] !== "**") pattern += "/";
+      pattern += index === segments.length - 1 ? ".*" : "(?:[^/]+/)*";
+      continue;
+    }
+    if (index > 0 && segments[index - 1] !== "**") pattern += "/";
+    pattern += segment.split("*").map(escapeRegExp).join("[^/]*");
+  }
+  return new RegExp(`${pattern}$`).test(path);
 }
 
 function parseWorktrees(output: string): Array<{ path: string; branch: string }> {
@@ -113,3 +127,7 @@ function parseWorktrees(output: string): Array<{ path: string; branch: string }>
 }
 function splitLines(value: string): string[] { return value === "" ? [] : value.split(/\r?\n/).filter(Boolean); }
 function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function samePath(left: string, right: string): boolean {
+  const normalize = (value: string): string => resolve(value).replace(/^\/private(?=\/)/, "");
+  return normalize(left) === normalize(right);
+}
