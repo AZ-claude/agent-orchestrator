@@ -9,7 +9,7 @@ export interface CodexEvent {
   readonly [key: string]: unknown;
 }
 
-export type CodexOutcome = "success" | "rate-limit" | "crash" | "failed";
+export type CodexOutcome = "success" | "rate-limit" | "crash" | "failed" | "spawn-error";
 
 export interface CodexLifecycleObservation {
   readonly events: readonly CodexEvent[];
@@ -46,7 +46,7 @@ export function parseCodexJsonLine(line: string): CodexEvent | null {
   return parsed as CodexEvent;
 }
 
-export function observeCodexOutput(lines: Iterable<string>, exitCode: number | null): CodexLifecycleObservation {
+export function observeCodexOutput(lines: Iterable<string>, exitCode: number | null, exitReason: "exit" | "signal" | "spawn-error" = "exit"): CodexLifecycleObservation {
   const events: CodexEvent[] = [];
   let sessionId: string | null = null;
   let rateLimitRetryAt: string | null = null;
@@ -60,7 +60,7 @@ export function observeCodexOutput(lines: Iterable<string>, exitCode: number | n
   }
   const rateLimited = events.some(isRateLimitEvent);
   const failed = events.some((event) => event.type === "turn.failed" || event.type === "error");
-  const outcome: CodexOutcome = rateLimited ? "rate-limit" : failed ? "failed" : exitCode === 0 ? "success" : exitCode === null ? "failed" : "crash";
+  const outcome: CodexOutcome = rateLimited ? "rate-limit" : failed ? "failed" : exitReason === "spawn-error" ? "spawn-error" : exitCode === 0 ? "success" : exitCode === null || exitReason === "signal" ? "crash" : "crash";
   return { events, sessionId, outcome, exitCode, rateLimitRetryAt };
 }
 
@@ -109,6 +109,7 @@ export interface CodexProcess {
   readonly stdout: AsyncIterable<string>;
   readonly stderr: AsyncIterable<string>;
   readonly exitCode: Promise<number | null>;
+  readonly exitReason?: Promise<"exit" | "signal" | "spawn-error">;
   kill(signal?: NodeJS.Signals): void;
 }
 
@@ -116,14 +117,17 @@ export function spawnCodex(invocation: CodexInvocation, cwd: string, executable 
   const command = codexCommand(invocation, executable);
   const child = spawn(command.command, [...command.args], { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
   let resolveExit: ((code: number | null) => void) | undefined;
+  let resolveReason: ((reason: "exit" | "signal" | "spawn-error") => void) | undefined;
   const exitCode = new Promise<number | null>((resolve) => { resolveExit = resolve; });
-  child.once("exit", (code) => resolveExit?.(code));
-  child.once("error", () => resolveExit?.(null));
+  const exitReason = new Promise<"exit" | "signal" | "spawn-error">((resolve) => { resolveReason = resolve; });
+  child.once("exit", (code, signal) => { resolveExit?.(code); resolveReason?.(signal === null ? "exit" : "signal"); });
+  child.once("error", () => { resolveExit?.(null); resolveReason?.("spawn-error"); });
   return {
     pid: child.pid,
     stdout: linesFromStream(child.stdout),
     stderr: linesFromStream(child.stderr),
     exitCode,
+    exitReason,
     kill: (signal = "SIGTERM") => child.kill(signal),
   };
 }

@@ -30,6 +30,13 @@ test("parses the installed Codex exec --json fixture without guessing event name
   assert.equal(observation.outcome, "success");
 });
 
+test("parses the installed Codex exec resume --json fixture", async () => {
+  const output = await readFile("test/fixtures/codex/exec-resume.jsonl", "utf8");
+  const observation = observeCodexOutput(output.trim().split("\n"), 0);
+  assert.equal(observation.sessionId, "01a056e8-ce44-70c0-a39d-dd086a7198fb");
+  assert.equal(observation.outcome, "success");
+});
+
 test("non-zero unknown failures remain crashes, not guessed rate limits", () => {
   assert.equal(observeCodexOutput([JSON.stringify({ type: "error", message: "connection reset" })], 1).outcome, "failed");
   assert.equal(observeCodexOutput([JSON.stringify({ type: "turn.failed", error: { message: "You've hit your usage limit." } })], 0).outcome, "rate-limit");
@@ -39,5 +46,12 @@ test("non-zero unknown failures remain crashes, not guessed rate limits", () => 
 test("spawn failure resolves as a diagnostic failed run", async () => {
   const { spawnCodex } = await import("../src/codex/index.js");
   const process = spawnCodex({ kind: "new", prompt: "noop" }, "/tmp", "definitely-not-a-real-codex");
-  assert.equal(await process.exitCode, null);
+  const reason = await process.exitReason;
+  assert.equal(reason, "spawn-error");
+  assert.equal(observeCodexOutput([], await process.exitCode, reason).outcome, "spawn-error");
+});
+
+test("signal termination is classified as crash, separately from spawn error", () => {
+  assert.equal(observeCodexOutput([], null, "signal").outcome, "crash");
+  assert.equal(observeCodexOutput([], null, "spawn-error").outcome, "spawn-error");
 });
