@@ -26,6 +26,11 @@ test("fails closed for dependency cycles", () => {
   assert.throws(() => { validateManifestGraph(manifest as never); }, /cycle/);
 });
 
+test("fails closed for duplicate dependency entries", () => {
+  const manifest = { ...base, tasks: [task("AO-01", ["AO-01", "AO-01"])] };
+  assert.throws(() => { validateManifestGraph(manifest as never); }, /duplicate dependency/);
+});
+
 test("does not parse the human Markdown board as YAML manifest", () => {
   assert.throws(() => parseManifestText("# board\nnot a manifest"), /validation failed/);
 });

@@ -43,6 +43,7 @@ export function validateManifestGraph(manifest: TaskManifest): void {
     ids.add(task.id);
   }
   for (const [index, task] of manifest.tasks.entries()) {
+    if (new Set(task.dependsOn).size !== task.dependsOn.length) issues.push({ path: `$.tasks[${index}].dependsOn`, message: "duplicate dependency" });
     for (const dependency of task.dependsOn) {
       if (!ids.has(dependency)) issues.push({ path: `$.tasks[${index}].dependsOn`, message: `unknown dependency ${dependency}` });
       if (dependency === task.id) issues.push({ path: `$.tasks[${index}].dependsOn`, message: "task cannot depend on itself" });
