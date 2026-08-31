@@ -18,8 +18,8 @@ export class LunaRunner {
 
   private async run(invocation: CodexInvocation, worktree: string): Promise<LunaRunResult> {
     const process = this.createProcess(invocation, worktree);
-    const [stdout, stderr, exitCode] = await Promise.all([collect(process.stdout), collect(process.stderr), process.exitCode]);
-    const observation = observeCodexOutput(stdout, exitCode);
+    const [stdout, stderr, exitCode, exitReason] = await Promise.all([collect(process.stdout), collect(process.stderr), process.exitCode, process.exitReason ?? Promise.resolve("exit" as const)]);
+    const observation = observeCodexOutput(stdout, exitCode, exitReason);
     return { ...observation, pid: process.pid, stderr };
   }
 }

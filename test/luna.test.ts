@@ -5,7 +5,7 @@ import { LunaRunner } from "../src/luna/index.js";
 
 const id = "123e4567-e89b-12d3-a456-426614174000";
 function fakeProcess(lines: string[], code: number): CodexProcess {
-  return { pid: 42, stdout: (async function* () { yield* lines; })(), stderr: (async function* () { yield "stderr"; })(), exitCode: Promise.resolve(code), kill: () => undefined };
+  return { pid: 42, stdout: (async function* () { yield* lines; })(), stderr: (async function* () { yield "stderr"; })(), exitCode: Promise.resolve(code), exitReason: Promise.resolve("exit"), kill: () => undefined };
 }
 
 test("runner captures JSONL, PID/session and exit outcome", async () => {
