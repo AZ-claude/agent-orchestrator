@@ -64,8 +64,7 @@ export class CheckpointStore {
   }
 
   private pathFor(taskId: string): string {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(taskId)) throw new Error("invalid checkpoint task ID");
-    return join(this.root, `${taskId}.json`);
+    return checkpointPath(this.root, taskId);
   }
 }
 
@@ -80,6 +79,7 @@ export function migrateCheckpoint(value: unknown): Checkpoint {
 }
 
 export function checkpointPath(root: string, taskId: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(taskId)) throw new Error("invalid checkpoint task ID");
   return join(root, `${taskId}.json`);
 }
 

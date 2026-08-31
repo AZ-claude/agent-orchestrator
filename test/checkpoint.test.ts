@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CheckpointStore, migrateCheckpoint } from "../src/checkpoint/index.js";
+import { CheckpointStore, checkpointPath, migrateCheckpoint } from "../src/checkpoint/index.js";
 
 const checkpoint = { issueNumber: 1, taskId: "AO-04", phase: "luna", attempt: 1, sessionId: null, branch: "agent/AO-04", worktree: "/tmp/ao-04", pid: null, lastHead: null, retryAt: null } as const;
 
@@ -29,4 +29,13 @@ test("serializes concurrent writes and rejects filename/task identity mismatches
   assert.equal((await store.load("AO-04"))?.taskId, "AO-04");
   await writeFile(join(root, "wrong.json"), JSON.stringify({ ...checkpoint, taskId: "AO-04" }));
   await assert.rejects(() => store.load("wrong"), /filename\/taskId mismatch/);
+  assert.throws(() => checkpointPath(root, "../escape"), /invalid checkpoint task ID/);
+});
+
+test("loads legacy unwrapped state during migration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ao-checkpoint-legacy-"));
+  const store = new CheckpointStore(root);
+  await writeFile(join(root, "AO-04.json"), JSON.stringify(checkpoint));
+  assert.deepEqual(await store.load("AO-04"), checkpoint);
+  assert.deepEqual((await store.list()).map((item) => item.taskId), ["AO-04"]);
 });
