@@ -1,5 +1,6 @@
 import { CodexInvocation, CodexLifecycleObservation, CodexProcess, observeCodexOutput, spawnCodex } from "../codex/index.js";
 import { appendFile, mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 export interface LunaRunResult extends CodexLifecycleObservation {
@@ -16,7 +17,7 @@ export class LunaRunner {
   private readonly logRoot: string;
   private readonly maxResumeAttempts: number;
   constructor(private readonly createProcess: ProcessFactory = spawnCodex, options: LunaRunnerOptions = {}) {
-    this.logRoot = options.logRoot ?? "/Users/eita/.local/state/agent-orchestrator/logs";
+    this.logRoot = options.logRoot ?? join(homedir(), ".local", "state", "agent-orchestrator", "logs");
     this.maxResumeAttempts = options.maxResumeAttempts ?? 2;
   }
 
@@ -30,7 +31,7 @@ export class LunaRunner {
 
   async resumeWithRetry(sessionId: string, prompt: string, worktree: string): Promise<LunaRunResult> {
     let result = await this.resume(sessionId, prompt, worktree, 1);
-    while ((result.outcome === "crash" || result.outcome === "failed" || result.outcome === "spawn-error") && result.attempt < this.maxResumeAttempts) {
+    while (result.outcome === "crash" && result.attempt < this.maxResumeAttempts) {
       result = await this.resume(sessionId, prompt, worktree, result.attempt + 1);
     }
     return result;
