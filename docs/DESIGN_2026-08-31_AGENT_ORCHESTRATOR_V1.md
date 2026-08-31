@@ -129,7 +129,9 @@ Luna exit は成功宣言ではない。validator が LLM なしで以下を集�
 
 ### 5.4 必須の独立 Luna review
 
-machine validation が PASS した task は、例外なく別の Luna session に review-only worktree を作って渡す。これは task-board の task ごとに追加指定しない v1 の共通 invariant である。daemon は implementation dispatch と同時に review slot を予約し、worker-done の packet ができ次第 review prompt を自動投入する。人間や管理 session が review 用 prompt をコピー/作成する運用は持ち込まない。
+machine validation が PASS した task は、例外なく別の Luna session に review-only worktree を作って渡す。これは task-board の task ごとに追加指定しない v1 の共通 invariant であり、**全 task の完了条件**である。daemon は implementation dispatch と同時に review slot を予約し、worker-done の packet ができ次第 review prompt を自動投入する。人間や管理 session が review 用 prompt をコピー/作成する運用は持ち込まない。
+
+review request の発信者は Terra ではない。implementation Luna は commit/push と machine validation に必要な structured completion result を返し、その result に含まれる `independentReview: required` を daemon が機械的に検知する。daemon はその task/HEAD/packet を引き継いだ別 Luna session を起動するだけであり、Terra は独立 review の起動・指示・再指示を一切行わない。これは「Luna が完了を渡す → Luna が独立 review する」という実行契約で、daemon は non-LLM transport である。
 
 review Luna は source branch/HEAD と review packet を読み、コードを変更せず、task scope・completion criteria・allowed paths・machine evidence を独立に検証する。結果は次の二値に固定する。
 
@@ -138,7 +140,7 @@ APPROVE
 REWORK: concrete findings (severity, file/line, reproduction, required test)
 ```
 
-REWORK は同じ implementation Luna session/worktree/branch へ自動で渡し、machine validation と独立 Luna review を再度行う。APPROVE された task だけを Terra review queue へ送る。`reviewing` Issue state は checkpoint の `reviewStage: luna-independent | terra-semantic` で下位段階を一意にするため、追加 label は作らない。
+REWORK は同じ implementation Luna session/worktree/branch へ自動で渡し、machine validation と独立 Luna review を再度行う。独立 Luna review の APPROVE を得るまで task は完了ではない。APPROVE された task だけを Terra review queue へ送る。`reviewing` Issue state は checkpoint の `reviewStage: luna-independent | terra-semantic` で下位段階を一意にするため、追加 label は作らない。
 
 ### 5.5 Terra semantic review と merge
 

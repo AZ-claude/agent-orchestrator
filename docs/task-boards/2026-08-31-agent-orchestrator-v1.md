@@ -12,7 +12,8 @@
 - daemon の LLM token 消費は 0。Luna/Terra 呼出しは task execution/review のみで、polling・DAG・validation・recovery に LLM を使わない。
 - daemon は merge、production DB mutation、`/slot` Windows Scheduler、deploy を実行しない。
 - `/slot` の既存 AGENTS/common operating rules を Luna/Terra prompt と Terra merge に優先適用する。
-- 全実装 task は、machine validation PASS 後に別 Luna session の independent review を必須とする。review session は実装 task の dispatch 時点で自動予約し、REWORK は同じ implementation Luna session へ自動で戻す。task ごとの review 指示や人間による prompt 転送は不要である。
+- 全実装 task は、machine validation PASS後に別 Luna session の independent review が PASSするまで完了ではない。review session は実装 task の dispatch 時点で自動予約し、REWORK は同じ implementation Luna session へ自動で戻して、修正→machine validation→独立 Luna reviewを繰り返す。task ごとの review 指示や人間による prompt 転送は不要である。
+- independent review request は implementation Luna の structured completion result から発生し、daemon が別 Luna session に標準 review prompt を配送する。Terra は独立 review の依頼・指示・再依頼をしない。Terra の責務は Luna review PASS 後の semantic approval/merge のみである。
 - `AO-14` は `/slot` の disposable/documentation-only task だけで受入する。live runtime 変更は Human Gate の別 task とする。
 
 ## 1. 依存関係
@@ -29,6 +30,18 @@ AO-16 (launchd) depends on AO-13 and is independent of AO-14/15.
 ```
 
 ## 2. 実装タスク
+
+### 全 Task の共通完了条件
+
+表中の各 Task は、固有の完了条件に加え、以下をすべて満たして初めて完了とする。
+
+1. 指定 test と関連 build/lint/test が PASS し、machine validation が PASS する。
+2. implementation Luna の structured completion result が `independentReview: required` を返す。
+3. 別 Luna session の independent review が PASS する。
+4. 独立 review が REWORK を返した場合、同じ implementation Luna session/worktree/branch で修正し、1〜3 を PASS するまで繰り返す。
+5. Luna review PASS 後に限り Terra semantic approval/merge へ進む。
+
+独立 review の標準 prompt は task dispatch 時に daemon が予約・配送するため、各 Task や Terra に review 用の別指示を追加しない。
 
 | ID | Task | 状態 | 依存 | Parallel | 完了条件 |
 |---|---|---|---|---|---|
@@ -62,7 +75,7 @@ AO-16 (launchd) depends on AO-13 and is independent of AO-14/15.
 - manifest/Issue/checkpoint の不整合は silent dispatch せず fail closed にする。
 - state transition、GitHub API、DAG、process、validation、recovery は fixture/integration test で再現可能にする。
 - normal scheduler loop と validator に LLM invocation がないことを command-level test で確認する。
-- worker-done の task は Terra に送る前に必ず別 Luna の review-only session を通す。REWORK 後もこの review を省略しない。review dispatch は実装 dispatch と同じ共通 task contract から自動化し、task ごとの別指示を要求しない。
+- worker-done の task は Terra に送る前に必ず別 Luna の review-only session を通し、PASSしなければ完了しない。REWORK 後も修正→validation→独立 Luna reviewを繰り返し、この review を省略しない。review dispatch は implementation Luna の structured completion result を契機に実装 dispatch と同じ共通 task contract から自動化し、task ごとの別指示を要求しない。
 - worker task は target repo の Git rules を読み、branch/worktree 内でのみ edit/test/commit/push を行う。
 - Issues は Git task-board のポインタであり、Issue 本文を仕様正本にしない。
 
