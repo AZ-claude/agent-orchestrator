@@ -1,5 +1,5 @@
 import { CommandResult, CommandRunner, defaultCommandRunner } from "../git/index.js";
-import { ManifestTask, TaskManifest, EXECUTION_STATES, ExecutionState, PILOT_TARGET_REPO } from "../config/index.js";
+import { ManifestTask, TaskManifest, EXECUTION_STATES, ExecutionState } from "../config/index.js";
 
 export interface IssueSnapshot {
   readonly number: number;
@@ -12,6 +12,7 @@ export interface IssueSnapshot {
 }
 export interface GhClient { run(args: readonly string[]): Promise<CommandResult>; }
 export interface ProjectedIssues { readonly parent: IssueSnapshot; readonly tasks: ReadonlyMap<string, IssueSnapshot>; }
+export const PILOT_GH_REPO = "AZ-claude/slot";
 
 export class GhCommandError extends Error {
   constructor(readonly args: readonly string[], readonly result: CommandResult) {
@@ -22,7 +23,7 @@ export class GhCommandError extends Error {
 
 export class CliGhClient implements GhClient {
   constructor(private readonly runCommand: CommandRunner = defaultCommandRunner) {}
-  run(args: readonly string[]): Promise<CommandResult> { return this.runCommand("gh", [...args, "--repo", PILOT_TARGET_REPO]); }
+  run(args: readonly string[]): Promise<CommandResult> { return this.runCommand("gh", [...args, "--repo", PILOT_GH_REPO]); }
 }
 
 export const STATE_LABEL = (state: ExecutionState): string => `ao:state:${state}`;
@@ -33,6 +34,7 @@ export class GitHubIssueProjector {
   constructor(private readonly client: GhClient) {}
 
   async project(manifest: TaskManifest, existingParent?: IssueSnapshot): Promise<ProjectedIssues> {
+    await this.ensureStateLabels();
     const parent = existingParent ?? await this.findByMarker(PARENT_MARKER) ?? await this.createIssue(`${manifest.handoff.id} orchestration`, `${PARENT_MARKER}\nCanonical board: ${manifest.handoff.board}`);
     const tasks = new Map<string, IssueSnapshot>();
     for (const task of manifest.tasks) {
@@ -76,6 +78,13 @@ export class GitHubIssueProjector {
     }
   }
 
+  private async ensureStateLabels(): Promise<void> {
+    for (const state of EXECUTION_STATES) {
+      const result = await this.client.run(["label", "create", STATE_LABEL(state), "--force"]);
+      if (result.code !== 0) throw new GhCommandError(["label", "create"], result);
+    }
+  }
+
   async removeBlockedBy(issueNumber: number, dependencyNumber: number): Promise<void> {
     const result = await this.client.run(["issue", "edit", String(issueNumber), "--remove-blocked-by", String(dependencyNumber)]);
     if (result.code !== 0) throw new GhCommandError(["issue", "edit"], result);
@@ -87,7 +96,7 @@ export class GitHubIssueProjector {
   }
 
   async readOpen(): Promise<readonly IssueSnapshot[]> {
-    const result = await this.client.run(["issue", "list", "--state", "all", "--json", "number,title,body,state,labels,parent,blockedBy"]);
+    const result = await this.client.run(["issue", "list", "--state", "all", "--limit", "1000", "--json", "number,title,body,state,labels,parent,blockedBy"]);
     if (result.code !== 0) throw new GhCommandError(["issue", "list"], result);
     const parsed = JSON.parse(result.stdout) as unknown;
     if (!Array.isArray(parsed)) throw new Error("gh issue list returned a non-array");
