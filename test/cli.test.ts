@@ -15,3 +15,11 @@ test("daemon invokes run-once without LLM polling and logger redacts secrets", a
   assert.equal(runs, 1);
   assert.doesNotMatch(events[0] ?? "", /secret|token|prompt/i);
 });
+
+test("logger redacts sensitive text in ordinary and nested values", () => {
+  const events: string[] = [];
+  new PrivacySafeLogger((line) => events.push(line)).info("event", { message: "password=abc", values: ["api key", "safe"] });
+  assert.equal(events.length, 1);
+  assert.doesNotMatch(events[0] ?? "", /password|abc|api key/i);
+  assert.match(events[0] ?? "", /safe/);
+});
