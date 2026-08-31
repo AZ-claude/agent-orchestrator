@@ -57,6 +57,7 @@ export interface ManifestHandoff {
   readonly board: string;
   readonly targetRepo: string;
   readonly baseBranch: string;
+  readonly implementationPromptTemplate: string;
 }
 
 export interface ManifestTask {
@@ -71,7 +72,18 @@ export interface ManifestTask {
 
 export interface TaskManifest {
   readonly handoff: ManifestHandoff;
+  readonly workerCompletionContract: WorkerCompletionContract;
   readonly tasks: readonly ManifestTask[];
+}
+
+export interface WorkerCompletionContract {
+  readonly independentReview: "required";
+  readonly reviewer: "same-session-read-only-luna-subagent";
+  readonly reviewerContext: "task-scope-source-head-review-packet-only";
+  readonly reviewerHistory: "none";
+  readonly onRework: "same-implementation-session-fix-validate-rereview";
+  readonly completion: "reviewer-approve-required-before-terra";
+  readonly fallback: "only-if-subagent-capability-unavailable";
 }
 
 /**
@@ -139,7 +151,7 @@ export function parseManifest(value: unknown): TaskManifest {
   return parseWith("task manifest", value, (input, path, issues) => validateManifest(input, path, issues, PILOT_TARGET_REPO));
 }
 
-export function parseManifestForPilot(value: unknown, config: Pick<PilotConfig, "pilot">): TaskManifest {
+export function parseManifestForPilot(value: unknown, config: { readonly pilot: Pick<PilotConfig["pilot"], "targetRepo"> }): TaskManifest {
   if (config.pilot.targetRepo !== PILOT_TARGET_REPO) {
     throw new SchemaValidationError("task manifest", [{ path: "$.pilot.targetRepo", message: `must equal the v1 pilot target ${PILOT_TARGET_REPO}` }]);
   }
@@ -255,18 +267,50 @@ function validateManifest(value: unknown, path: string, issues: ValidationIssue[
     issues.push(issue(path, "must be an object"));
     return undefined;
   }
-  rejectUnknown(value, ["handoff", "tasks"], path, issues);
+  rejectUnknown(value, ["handoff", "workerCompletionContract", "tasks"], path, issues);
   const handoff = requiredRecord(value, "handoff", path, issues);
   const tasks = requiredArray(value, "tasks", path, issues);
   if (handoff) {
-    rejectUnknown(handoff, ["id", "source", "board", "targetRepo", "baseBranch"], `${path}.handoff`, issues);
+    rejectUnknown(handoff, ["id", "source", "board", "targetRepo", "baseBranch", "implementationPromptTemplate"], `${path}.handoff`, issues);
   }
   const handoffValue = handoff ? validateManifestHandoff(handoff, `${path}.handoff`, issues, expectedTargetRepo) : undefined;
+  const contract = validateWorkerCompletionContract(value.workerCompletionContract, `${path}.workerCompletionContract`, issues);
   const taskValues = tasks?.map((task, index) => validateManifestTask(task, `${path}.tasks[${index}]`, issues));
-  if (handoffValue !== undefined && taskValues !== undefined && taskValues.every(isDefined)) {
-    return { handoff: handoffValue, tasks: taskValues };
+  if (handoffValue !== undefined && contract !== undefined && taskValues !== undefined && taskValues.every(isDefined)) {
+    return {
+      handoff: handoffValue,
+      workerCompletionContract: contract,
+      tasks: taskValues,
+    };
   }
   return undefined;
+}
+
+function validateWorkerCompletionContract(value: unknown, path: string, issues: ValidationIssue[]): WorkerCompletionContract | undefined {
+  if (!isRecord(value)) {
+    issues.push(issue(path, "must be an object"));
+    return undefined;
+  }
+  const fields = {
+    independentReview: "required",
+    reviewer: "same-session-read-only-luna-subagent",
+    reviewerContext: "task-scope-source-head-review-packet-only",
+    reviewerHistory: "none",
+    onRework: "same-implementation-session-fix-validate-rereview",
+    completion: "reviewer-approve-required-before-terra",
+    fallback: "only-if-subagent-capability-unavailable",
+  } as const;
+  rejectUnknown(value, Object.keys(fields), path, issues);
+  const parsed = {} as Record<keyof typeof fields, string>;
+  for (const [key, expected] of Object.entries(fields) as Array<[keyof typeof fields, string]>) {
+    const candidate = requiredString(value, key, path, issues);
+    if (candidate !== undefined && candidate !== expected) {
+      issues.push(issue(`${path}.${key}`, `must equal ${expected}`));
+    }
+    if (candidate !== undefined) parsed[key] = candidate;
+  }
+  if (Object.keys(parsed).length !== Object.keys(fields).length || issuesForPath(issues, path)) return undefined;
+  return parsed as WorkerCompletionContract;
 }
 
 function validateManifestHandoff(value: Record<string, unknown>, path: string, issues: ValidationIssue[], expectedTargetRepo: string): ManifestHandoff | undefined {
@@ -275,8 +319,9 @@ function validateManifestHandoff(value: Record<string, unknown>, path: string, i
   const board = requiredRelativePath(value, "board", path, issues);
   const targetRepo = requiredExpectedTarget(value, "targetRepo", expectedTargetRepo, path, issues);
   const baseBranch = requiredString(value, "baseBranch", path, issues);
-  if (id !== undefined && source !== undefined && board !== undefined && targetRepo !== undefined && baseBranch !== undefined) {
-    return { id, source, board, targetRepo, baseBranch };
+  const implementationPromptTemplate = requiredRelativePath(value, "implementationPromptTemplate", path, issues);
+  if (id !== undefined && source !== undefined && board !== undefined && targetRepo !== undefined && baseBranch !== undefined && implementationPromptTemplate !== undefined) {
+    return { id, source, board, targetRepo, baseBranch, implementationPromptTemplate };
   }
   return undefined;
 }

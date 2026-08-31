@@ -43,6 +43,16 @@ test("manifest schema validates the YAML projection shape without doing DAG sema
       board: "docs/task-boards/board.md",
       targetRepo: "/Users/eita/projects/slot",
       baseBranch: "main",
+      implementationPromptTemplate: "prompts/luna-implementation-task.md",
+    },
+    workerCompletionContract: {
+      independentReview: "required",
+      reviewer: "same-session-read-only-luna-subagent",
+      reviewerContext: "task-scope-source-head-review-packet-only",
+      reviewerHistory: "none",
+      onRework: "same-implementation-session-fix-validate-rereview",
+      completion: "reviewer-approve-required-before-terra",
+      fallback: "only-if-subagent-capability-unavailable",
     },
     tasks: [
       {
@@ -70,6 +80,16 @@ test("allowedPaths accepts normal repository globs and rejects repository escape
       board: "docs/task-boards/board.md",
       targetRepo: "/Users/eita/projects/slot",
       baseBranch: "main",
+      implementationPromptTemplate: "prompts/luna-implementation-task.md",
+    },
+    workerCompletionContract: {
+      independentReview: "required",
+      reviewer: "same-session-read-only-luna-subagent",
+      reviewerContext: "task-scope-source-head-review-packet-only",
+      reviewerHistory: "none",
+      onRework: "same-implementation-session-fix-validate-rereview",
+      completion: "reviewer-approve-required-before-terra",
+      fallback: "only-if-subagent-capability-unavailable",
     },
     tasks: [{ id: "AO-02", title: "schema", dependsOn: [], parallel: "SAFE", humanGate: false, allowedPaths: ["src/config/**", "package.json"], test: "npm test -- config" }],
   };
@@ -115,4 +135,15 @@ test("review result requires a concrete reason for rework and human blocking", (
     () => parseReviewResult({ result: "BLOCKED_HUMAN" }),
     (error: unknown) => error instanceof SchemaValidationError && /reason/.test(error.message),
   );
+});
+
+test("canonical manifest requires the independent-review contract", () => {
+  const canonical = {
+    handoff: { id: "agent-orchestrator-v1", source: "docs/HANDOFF.md", board: "docs/task-boards/board.md", targetRepo: "/Users/eita/projects/slot", baseBranch: "main", implementationPromptTemplate: "prompts/luna-implementation-task.md" },
+    workerCompletionContract: { independentReview: "required", reviewer: "same-session-read-only-luna-subagent", reviewerContext: "task-scope-source-head-review-packet-only", reviewerHistory: "none", onRework: "same-implementation-session-fix-validate-rereview", completion: "reviewer-approve-required-before-terra", fallback: "only-if-subagent-capability-unavailable" },
+    tasks: [{ id: "AO-02", title: "schema", dependsOn: [], parallel: "SAFE", humanGate: false, allowedPaths: ["src/config/**"], test: "npm test -- config" }],
+  };
+  assert.doesNotThrow(() => manifestSchema.parse(canonical));
+  assert.equal(manifestSchema.safeParse({ ...canonical, workerCompletionContract: undefined }).success, false);
+  assert.equal(manifestSchema.safeParse({ ...canonical, handoff: { ...canonical.handoff, implementationPromptTemplate: undefined } }).success, false);
 });

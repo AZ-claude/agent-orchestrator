@@ -31,5 +31,6 @@ export type {
   SafeParseResult,
   SafeParseSuccess,
   TaskManifest,
+  WorkerCompletionContract,
   ValidationIssue,
 } from "./schema.js";
