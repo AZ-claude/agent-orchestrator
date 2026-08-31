@@ -6,7 +6,7 @@ import { ManifestTask } from "../../src/config/index.js";
 
 export interface PilotFixtureResult { readonly safeDispatch: readonly string[]; readonly exclusiveBlocked: boolean; readonly reviewRounds: number; readonly rateLimitAction: string; readonly restartAction: string; }
 const makeTask = (id: string, parallel: "SAFE" | "EXCLUSIVE"): ManifestTask => ({ id, title: id, dependsOn: [], parallel, humanGate: false, allowedPaths: ["docs/**"], test: "true" });
-const packet: ReviewPacket = { taskId: "PILOT-REVIEW", canonicalTask: "PILOT-REVIEW", worktree: "/tmp/disposable-pilot", baseRef: "origin/main", branch: "agent/PILOT-REVIEW", head: "fixture-head", pushed: true, clean: true, changedFiles: ["docs/agent-runs/pilot.md"], unexpectedFiles: [], scope: "PASS", test: { command: "true", exitCode: 0, pass: true }, dependencies: "PASS", acceptance: "disposable fixture" };
+const packet: ReviewPacket = { taskId: "PILOT-REVIEW", canonicalTask: "PILOT-REVIEW", worktree: "/tmp/disposable-pilot", baseRef: "origin/main", branch: "agent/PILOT-REVIEW", head: "fixture-head", pushed: true, clean: true, changedFiles: ["docs/agent-runs/pilot.md"], unexpectedFiles: [], scope: "PASS", test: { command: "true", exitCode: 0, pass: true }, dependencies: "PASS", branchCheck: "PASS", worktreeCheck: "PASS", baseAncestor: "PASS", acceptance: "disposable fixture" };
 
 export async function runPilotFixture(): Promise<PilotFixtureResult> {
   const safe = [makeTask("SAFE-A", "SAFE"), makeTask("SAFE-B", "SAFE")];
