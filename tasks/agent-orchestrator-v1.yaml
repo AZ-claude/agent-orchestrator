@@ -30,7 +30,7 @@ tasks:
     dependsOn: []
     parallel: SAFE
     humanGate: false
-    allowedPaths: [package.json, package-lock.json, tsconfig.json, src/config/**, test/config.test.ts]
+    allowedPaths: [.gitignore, package.json, package-lock.json, tsconfig.json, src/config/**, test/config.test.ts]
     test: npm test -- config
   - id: AO-03
     title: Canonical task manifest loader
