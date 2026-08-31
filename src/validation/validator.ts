@@ -15,6 +15,10 @@ export interface ValidationEvidence {
   readonly scope: "PASS" | "FAIL";
   readonly test: { readonly command: string; readonly exitCode: number; readonly pass: boolean };
   readonly dependencies: "PASS" | "FAIL";
+  readonly branchCheck?: "PASS" | "FAIL";
+  readonly worktreeCheck?: "PASS" | "FAIL";
+  readonly baseAncestor?: "PASS" | "FAIL";
+  readonly previousRework?: string;
 }
 
 export interface ReviewPacket extends ValidationEvidence {
@@ -32,6 +36,9 @@ export interface ValidationOptions {
   readonly remoteBranch: string;
   readonly dependenciesPass: boolean;
   readonly acceptance?: string;
+  readonly expectedBranch?: string;
+  readonly expectedWorktree?: string;
+  readonly previousRework?: string;
 }
 
 export class MachineValidator {
@@ -41,6 +48,9 @@ export class MachineValidator {
     const snapshot = await this.git.snapshot(options.worktree, options.baseRef);
     const scope = await this.git.scopeCheck(options.worktree, options.baseRef, task.allowedPaths);
     const pushed = await this.git.remoteContains(options.repo, snapshot.head, options.remoteBranch);
+    const branchPass = snapshot.branch === (options.expectedBranch ?? `agent/${task.id}`);
+    const worktreePass = options.expectedWorktree === undefined || options.worktree === options.expectedWorktree;
+    const baseAncestor = await this.git.isAncestor(options.baseRef, snapshot.head, options.repo);
     const test = await runTest(task.test, options.worktree);
     return {
       taskId: task.id,
@@ -56,12 +66,16 @@ export class MachineValidator {
       scope: scope.pass ? "PASS" : "FAIL",
       test: { command: task.test, exitCode: test.code, pass: test.code === 0 },
       dependencies: options.dependenciesPass ? "PASS" : "FAIL",
+      branchCheck: branchPass ? "PASS" : "FAIL",
+      worktreeCheck: worktreePass ? "PASS" : "FAIL",
+      baseAncestor: baseAncestor ? "PASS" : "FAIL",
+      ...(options.previousRework === undefined ? {} : { previousRework: options.previousRework }),
       acceptance: options.acceptance ?? task.title,
     };
   }
 
   isPass(packet: ReviewPacket): boolean {
-    return packet.pushed && packet.clean && packet.scope === "PASS" && packet.test.pass && packet.dependencies === "PASS";
+    return packet.pushed && packet.clean && packet.scope === "PASS" && packet.test.pass && packet.dependencies === "PASS" && packet.branchCheck === "PASS" && packet.worktreeCheck === "PASS" && packet.baseAncestor === "PASS";
   }
 }
 
@@ -78,6 +92,9 @@ export function compactReviewPacket(packet: ReviewPacket): string {
     `Scope check: ${packet.scope}${packet.unexpectedFiles.length ? ` (${packet.unexpectedFiles.join(", ")})` : ""}`,
     `Test: ${packet.test.pass ? "PASS" : "FAIL"} (${packet.test.command})`,
     `Dependencies: ${packet.dependencies}`,
+    `Branch/worktree: ${packet.branchCheck ?? "UNKNOWN"}/${packet.worktreeCheck ?? "UNKNOWN"}`,
+    `Base ancestor: ${packet.baseAncestor ?? "UNKNOWN"}`,
+    ...(packet.previousRework === undefined ? [] : [`Previous rework: ${packet.previousRework}`]),
     `Acceptance: ${packet.acceptance}`,
   ].join("\n");
 }
@@ -101,4 +118,3 @@ export function splitCommand(command: string): string[] {
   for (const match of command.matchAll(pattern)) result.push(match[1] ?? match[2] ?? match[3] ?? "");
   return result;
 }
-
