@@ -4,7 +4,7 @@
 要件: [v1 requirements handoff](../HANDOFF_2026-08-31_AGENT_ORCHESTRATOR_V1_REQUIREMENTS.md)
 詳細設計: [v1 detailed design](../DESIGN_2026-08-31_AGENT_ORCHESTRATOR_V1.md)
 機械正本: [`tasks/agent-orchestrator-v1.yaml`](../../tasks/agent-orchestrator-v1.yaml)
-状態: **PLANNED — 実装未開始**
+状態: **DONE — AO-01〜AO-15 完了**
 
 ## 0. 境界と前提
 
