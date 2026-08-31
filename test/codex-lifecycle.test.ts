@@ -33,6 +33,7 @@ test("parses the installed Codex exec --json fixture without guessing event name
 test("non-zero unknown failures remain crashes, not guessed rate limits", () => {
   assert.equal(observeCodexOutput([JSON.stringify({ type: "error", message: "connection reset" })], 1).outcome, "failed");
   assert.equal(observeCodexOutput([JSON.stringify({ type: "turn.failed", error: { message: "You've hit your usage limit." } })], 0).outcome, "rate-limit");
+  assert.equal(observeCodexOutput([JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "The rate limit handling is complete." } }), JSON.stringify({ type: "turn.completed" })], 0).outcome, "success");
 });
 
 test("spawn failure resolves as a diagnostic failed run", async () => {

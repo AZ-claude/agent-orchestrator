@@ -65,7 +65,7 @@ export function observeCodexOutput(lines: Iterable<string>, exitCode: number | n
 }
 
 export function isRateLimitEvent(event: CodexEvent): boolean {
-  const values = collectStrings(event).join(" ").toLowerCase();
+  const values = rateLimitEvidence(event).join(" ").toLowerCase();
   return event.status === 429 || event.code === 429 || /rate[ _-]?limit|usage[ _-]?limit|quota exceeded|too many requests/.test(values);
 }
 
@@ -95,6 +95,12 @@ function collectStrings(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(collectStrings);
   if (isRecord(value)) return Object.entries(value).flatMap(([key, nested]) => [key, ...collectStrings(nested)]);
   return [];
+}
+
+function rateLimitEvidence(event: CodexEvent): string[] {
+  const values: unknown[] = [event.type, event.code, event.errorType, event.status, event.retry_at, event.retryAt];
+  if (event.type === "turn.failed" || event.type === "error") values.push(event.message, event.error);
+  return values.flatMap(collectStrings);
 }
 
 /** Small injectable adapter used by process tests and by the runner. */
