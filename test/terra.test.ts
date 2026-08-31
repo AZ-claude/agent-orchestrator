@@ -19,3 +19,9 @@ test("Terra runner resumes a saved session and sends a compact packet", async ()
   assert.equal(result.result.result, "APPROVE");
   assert.match(prompt, /Task: AO-10/);
 });
+
+test("Terra non-zero process exit cannot approve from a valid-looking payload", async () => {
+  const process: CodexProcess = { pid: 9, stdout: (async function* () { yield '{"result":"APPROVE"}'; })(), stderr: (async function* () {})(), exitCode: Promise.resolve(1), kill: () => undefined };
+  const packet = { taskId: "AO-10", canonicalTask: "AO-10", worktree: "/tmp/w", baseRef: "origin/main", branch: "agent/AO-10", head: "abc", pushed: true, clean: true, changedFiles: [], unexpectedFiles: [], scope: "PASS", test: { command: "npm test -- terra", exitCode: 0, pass: true }, dependencies: "PASS", acceptance: "terra" } as const;
+  await assert.rejects(() => new TerraReviewRunner(() => process).review("123e4567-e89b-72d3-a456-426614174000", packet, "/tmp"), /exit code/);
+});

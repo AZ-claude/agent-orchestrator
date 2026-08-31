@@ -16,7 +16,8 @@ export class TerraReviewRunner {
     const process = this.createProcess({ kind: "resume", sessionId: savedSessionId, prompt: terraReviewPrompt(packet) }, cwd);
     const lines: string[] = [];
     for await (const line of process.stdout) lines.push(line);
-    await process.exitCode;
+    const exitCode = await process.exitCode;
+    if (exitCode !== 0) throw new Error(`Terra process failed with exit code ${String(exitCode)}`);
     const raw = lines.join("\n");
     return { result: parseTerraResult(raw), sessionId: savedSessionId, raw };
   }
