@@ -23,105 +23,105 @@ tasks:
     dependsOn: [AO-02]
     parallel: SAFE
     humanGate: false
-    allowedPaths: [src/codex/**, test/fixtures/codex/**, test/codex/**]
+    allowedPaths: [src/codex/**, test/fixtures/codex/**, test/codex-lifecycle.test.ts]
     test: npm test -- codex-lifecycle
   - id: AO-02
     title: Node/TS scaffold and configuration schema
     dependsOn: []
     parallel: SAFE
     humanGate: false
-    allowedPaths: [package.json, package-lock.json, tsconfig.json, src/config/**, test/config/**]
+    allowedPaths: [package.json, package-lock.json, tsconfig.json, src/config/**, test/config.test.ts]
     test: npm test -- config
   - id: AO-03
     title: Canonical task manifest loader
     dependsOn: [AO-02]
     parallel: SAFE
     humanGate: false
-    allowedPaths: [src/manifest/**, test/manifest/**]
+    allowedPaths: [src/manifest/**, test/manifest.test.ts]
     test: npm test -- manifest
   - id: AO-04
     title: Local checkpoint store
     dependsOn: [AO-01, AO-02]
     parallel: SAFE
     humanGate: false
-    allowedPaths: [src/checkpoint/**, test/checkpoint/**]
+    allowedPaths: [src/checkpoint/**, test/checkpoint.test.ts]
     test: npm test -- checkpoint
   - id: AO-05
     title: GitHub Issue projector and reader
     dependsOn: [AO-02, AO-03]
     parallel: SAFE
     humanGate: false
-    allowedPaths: [src/github/**, test/github/**]
+    allowedPaths: [src/github/**, test/github.test.ts]
     test: npm test -- github
   - id: AO-06
     title: Git worktree adapter
     dependsOn: [AO-02]
     parallel: SAFE
     humanGate: false
-    allowedPaths: [src/git/**, test/git/**]
+    allowedPaths: [src/git/**, test/git.test.ts]
     test: npm test -- git
   - id: AO-07
     title: Luna runner and process monitor
     dependsOn: [AO-01, AO-04, AO-06]
     parallel: SAFE
     humanGate: false
-    allowedPaths: [src/luna/**, test/luna/**, test/fixtures/codex/**]
+    allowedPaths: [src/luna/**, test/luna.test.ts, test/fixtures/codex/**]
     test: npm test -- luna
   - id: AO-08
     title: Machine validator and review packet
     dependsOn: [AO-02, AO-03, AO-06]
     parallel: SAFE
     humanGate: false
-    allowedPaths: [src/validation/**, test/validation/**]
+    allowedPaths: [src/validation/**, test/validation.test.ts]
     test: npm test -- validation
   - id: AO-09
     title: Deterministic scheduler
     dependsOn: [AO-04, AO-05, AO-07, AO-08]
     parallel: EXCLUSIVE
     humanGate: false
-    allowedPaths: [src/scheduler/**, test/scheduler/**]
+    allowedPaths: [src/scheduler/**, test/scheduler.test.ts]
     test: npm test -- scheduler
   - id: AO-10
     title: Terra review runner and result parser
     dependsOn: [AO-01, AO-02]
     parallel: SAFE
     humanGate: false
-    allowedPaths: [src/terra/**, test/terra/**, test/fixtures/codex/**]
+    allowedPaths: [src/terra/**, test/terra.test.ts, test/fixtures/codex/**]
     test: npm test -- terra
   - id: AO-11
     title: Review rework and merge-close controller
     dependsOn: [AO-09, AO-10]
     parallel: EXCLUSIVE
     humanGate: false
-    allowedPaths: [src/controller/**, test/controller/**]
+    allowedPaths: [src/controller/**, test/controller.test.ts]
     test: npm test -- controller
   - id: AO-12
     title: Startup reconcile and rate-limit pause
     dependsOn: [AO-04, AO-07, AO-08, AO-10]
     parallel: SAFE
     humanGate: false
-    allowedPaths: [src/reconcile/**, test/reconcile/**]
+    allowedPaths: [src/reconcile/**, test/reconcile.test.ts]
     test: npm test -- reconcile
   - id: AO-13
     title: Daemon CLI logging and operational runbook
     dependsOn: [AO-09, AO-11, AO-12]
     parallel: EXCLUSIVE
     humanGate: false
-    allowedPaths: [src/cli/**, src/logging/**, docs/runbooks/**, test/cli/**]
+    allowedPaths: [src/cli/**, src/logging/**, docs/runbooks/**, test/cli.test.ts]
     test: npm test -- cli
   - id: AO-14
     title: Slot non-production pilot acceptance
     dependsOn: [AO-13]
     parallel: EXCLUSIVE
     humanGate: false
-    allowedPaths: [docs/agent-runs/**, test/pilot/**, scripts/pilot/**]
+    allowedPaths: [docs/agent-runs/**, test/pilot.test.ts, scripts/pilot/**]
     test: npm test -- pilot
   - id: AO-15
     title: Final acceptance and durable evidence
     dependsOn: [AO-14]
     parallel: EXCLUSIVE
     humanGate: false
-    allowedPaths: [docs/agent-runs/**, docs/task-boards/**]
+    allowedPaths: [docs/agent-runs/**, docs/task-boards/**, test/final-acceptance.test.ts]
     test: npm test -- final-acceptance
   - id: AO-16
     title: Launchd packaging and install verification
