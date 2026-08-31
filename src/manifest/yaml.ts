@@ -65,6 +65,10 @@ function stripComment(line: string): string {
       }
       continue;
     }
+    if (quote === '"' && character === '"') {
+      quote = null;
+      continue;
+    }
     if (quote === '"' && character === '\\') {
       index += 1;
       continue;
@@ -187,6 +191,10 @@ function findUnquoted(text: string, wanted: string): number {
       else quote = null;
       continue;
     }
+    if (quote === '"' && character === '"') {
+      quote = null;
+      continue;
+    }
     if (quote === '"' && character === '\\') {
       index += 1;
       continue;
@@ -211,14 +219,14 @@ function parseScalar(raw: string, line: SourceLine | undefined): unknown {
   if (value === "") return null;
   if (value.startsWith("[") || value.endsWith("]")) return parseFlowSequence(value, line);
   if (value.startsWith("{") || value.endsWith("}")) throw parseError(line, "flow mappings are not supported");
-  if (value.startsWith("&") || value.startsWith("*") || value.startsWith("!") || value === "|" || value === ">") {
+  if (value.startsWith("&") || value.startsWith("*") || value.startsWith("!") || value.startsWith("|") || value.startsWith(">")) {
     throw parseError(line, "anchors, tags, and block scalars are not supported");
   }
   if (value === "true") return true;
   if (value === "false") return false;
   if (value === "null" || value === "~") return null;
   if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return Number(value);
-  if ((value.startsWith("'") && value.endsWith("'")) || (value.startsWith('"') && value.endsWith('"'))) {
+  if (value.startsWith("'") || value.startsWith('"')) {
     return parseQuoted(value, line);
   }
   if (value.includes("\0")) throw parseError(line, "NUL is not allowed");
@@ -243,6 +251,10 @@ function splitFlowItems(body: string, line: SourceLine | undefined): string[] {
     if (quote === "'" && character === "'") {
       if (body[index + 1] === "'") index += 1;
       else quote = null;
+      continue;
+    }
+    if (quote === '"' && character === '"') {
+      quote = null;
       continue;
     }
     if (quote === '"' && character === '\\') {
