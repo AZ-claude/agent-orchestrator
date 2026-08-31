@@ -8,7 +8,7 @@ class FakeGh implements GhClient {
   async run(args: readonly string[]) {
     this.calls.push([...args]);
     if (args[0] === "issue" && args[1] === "list") return { stdout: "[]", stderr: "", code: 0 };
-    if (args[0] === "issue" && args[1] === "create") return { stdout: JSON.stringify({ number: this.next++, title: args[3], body: args[5], state: "OPEN", labels: [] }), stderr: "", code: 0 };
+    if (args[0] === "issue" && args[1] === "create") return { stdout: `https://github.com/example/repo/issues/${this.next++}`, stderr: "", code: 0 };
     return { stdout: "", stderr: "", code: 0 };
   }
 }
@@ -23,4 +23,15 @@ test("projects idempotent marker bodies and exclusive state labels", async () =>
   assert.ok(stateCall?.includes(STATE_LABEL("ready")));
   const addIndex = stateCall?.indexOf("--add-label") ?? -1;
   assert.equal(new Set((stateCall ?? []).slice(addIndex + 1).filter((item) => item.startsWith("ao:state:"))).size, 1);
+});
+
+test("uses gh-compatible parent, blocking, idempotence, and state-preserving calls", async () => {
+  const fake = new FakeGh();
+  const withDependency = { ...manifest, tasks: [{ ...manifest.tasks[0], id: "AO-05", dependsOn: ["AO-06"] }, { ...manifest.tasks[0], id: "AO-06", dependsOn: [] }] } as const;
+  const projector = new GitHubIssueProjector(fake);
+  await projector.project(withDependency);
+  const createCalls = fake.calls.filter((call) => call[0] === "issue" && call[1] === "create");
+  assert.ok(createCalls.some((call) => call.includes("--parent")));
+  assert.ok(fake.calls.some((call) => call.includes("--add-blocked-by")));
+  assert.ok(fake.calls.some((call) => call.includes("--remove-label") && call.join(" ").includes("ao:state:ready,ao:state:running")));
 });

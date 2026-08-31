@@ -33,19 +33,29 @@ export class GitHubIssueProjector {
   constructor(private readonly client: GhClient) {}
 
   async project(manifest: TaskManifest, existingParent?: IssueSnapshot): Promise<ProjectedIssues> {
-    const parent = existingParent ?? await this.createIssue(`${manifest.handoff.id} orchestration`, `${PARENT_MARKER}\nCanonical board: ${manifest.handoff.board}`);
+    const parent = existingParent ?? await this.findByMarker(PARENT_MARKER) ?? await this.createIssue(`${manifest.handoff.id} orchestration`, `${PARENT_MARKER}\nCanonical board: ${manifest.handoff.board}`);
     const tasks = new Map<string, IssueSnapshot>();
     for (const task of manifest.tasks) {
       const found = await this.findByMarker(TASK_MARKER(task.id));
-      const issue = found ?? await this.createIssue(task.title, this.taskBody(manifest, task, parent.number));
-      await this.setState(issue.number, "ready");
-      tasks.set(task.id, { ...issue, labels: [STATE_LABEL("ready")], parentNumber: parent.number, blockedBy: [] });
+      const issue = found ?? await this.createIssue(task.title, this.taskBody(manifest, task, parent.number), parent.number, undefined);
+      if (found === null) await this.setState(issue.number, "ready");
+      if (found !== null && issue.parentNumber !== parent.number) await this.setParent(issue.number, parent.number);
+      tasks.set(task.id, { ...issue, labels: found === null ? [STATE_LABEL("ready")] : issue.labels, parentNumber: parent.number, blockedBy: [] });
+    }
+    for (const task of manifest.tasks) {
+      const issue = tasks.get(task.id);
+      if (issue === undefined) continue;
+      const dependencyNumbers = task.dependsOn.map((dependency) => tasks.get(dependency)?.number).filter((number): number is number => number !== undefined);
+      if (dependencyNumbers.length > 0) {
+        await this.addBlockedBy(issue.number, dependencyNumbers);
+        tasks.set(task.id, { ...issue, blockedBy: dependencyNumbers });
+      }
     }
     return { parent, tasks };
   }
 
   async setState(issueNumber: number, state: ExecutionState): Promise<void> {
-    const result = await this.client.run(["issue", "edit", String(issueNumber), "--remove-label", ...EXECUTION_STATES.map((item) => STATE_LABEL(item)), "--add-label", STATE_LABEL(state)]);
+    const result = await this.client.run(["issue", "edit", String(issueNumber), "--remove-label", EXECUTION_STATES.map((item) => STATE_LABEL(item)).join(","), "--add-label", STATE_LABEL(state)]);
     if (result.code !== 0) throw new GhCommandError(["issue", "edit"], result);
   }
 
@@ -59,6 +69,18 @@ export class GitHubIssueProjector {
     if (result.code !== 0) throw new GhCommandError(["issue", "close"], result);
   }
 
+  async addBlockedBy(issueNumber: number, dependencyNumbers: readonly number[]): Promise<void> {
+    for (const dependencyNumber of dependencyNumbers) {
+      const result = await this.client.run(["issue", "edit", String(issueNumber), "--add-blocked-by", String(dependencyNumber)]);
+      if (result.code !== 0) throw new GhCommandError(["issue", "edit"], result);
+    }
+  }
+
+  private async setParent(issueNumber: number, parentNumber: number): Promise<void> {
+    const result = await this.client.run(["issue", "edit", String(issueNumber), "--parent", String(parentNumber)]);
+    if (result.code !== 0) throw new GhCommandError(["issue", "edit"], result);
+  }
+
   async readOpen(): Promise<readonly IssueSnapshot[]> {
     const result = await this.client.run(["issue", "list", "--state", "all", "--json", "number,title,body,state,labels"]);
     if (result.code !== 0) throw new GhCommandError(["issue", "list"], result);
@@ -67,10 +89,14 @@ export class GitHubIssueProjector {
     return parsed.map(parseIssue);
   }
 
-  private async createIssue(title: string, body: string): Promise<IssueSnapshot> {
-    const result = await this.client.run(["issue", "create", "--title", title, "--body", body, "--json", "number,title,body,state,labels"]);
+  private async createIssue(title: string, body: string, parentNumber?: number, blockedBy?: readonly number[]): Promise<IssueSnapshot> {
+    const args = ["issue", "create", "--title", title, "--body", body];
+    if (parentNumber !== undefined) args.push("--parent", String(parentNumber));
+    if (blockedBy !== undefined && blockedBy.length > 0) args.push("--blocked-by", blockedBy.join(","));
+    const result = await this.client.run(args);
     if (result.code !== 0) throw new GhCommandError(["issue", "create"], result);
-    return parseIssue(JSON.parse(result.stdout));
+    const parsed = parseCreatedIssue(result.stdout, title, body);
+    return parsed;
   }
   private async findByMarker(marker: string): Promise<IssueSnapshot | null> {
     const issues = await this.readOpen();
@@ -79,6 +105,13 @@ export class GitHubIssueProjector {
   private taskBody(manifest: TaskManifest, task: ManifestTask, parentNumber: number): string {
     return [TASK_MARKER(task.id), `Canonical task: ${manifest.handoff.board}#${task.id}`, `Depends on: ${task.dependsOn.join(", ") || "none"}`, `Parallel: ${task.parallel}`, `Human gate: ${task.humanGate}`, `Parent issue: #${parentNumber}`].join("\n");
   }
+}
+
+function parseCreatedIssue(output: string, title: string, body: string): IssueSnapshot {
+  const trimmed = output.trim();
+  const numberMatch = trimmed.match(/(?:issues\/|#)(\d+)\/?$/);
+  if (numberMatch?.[1] === undefined) throw new Error("gh issue create did not return an issue URL/number");
+  return { number: Number(numberMatch[1]), title, body, state: "OPEN", labels: [], parentNumber: null, blockedBy: [] };
 }
 
 function parseIssue(value: unknown): IssueSnapshot {
