@@ -24,6 +24,10 @@ export class ReviewCloseController {
     let reviewRounds = 0;
     for (;;) {
       reviewRounds += 1;
+      if (!machineValidationPassed(packet)) {
+        await this.deps.setState("blocked-human");
+        return { status: "blocked-human", reviewRounds, packet };
+      }
       await this.deps.setState("reviewing");
       const independent = await this.deps.reviewer.review(packet);
       if (independent !== "APPROVE") {
@@ -54,4 +58,8 @@ export class ReviewCloseController {
       packet = await this.deps.validate();
     }
   }
+}
+
+function machineValidationPassed(packet: ReviewPacket): boolean {
+  return packet.pushed && packet.clean && packet.scope === "PASS" && packet.test.pass && packet.dependencies === "PASS";
 }

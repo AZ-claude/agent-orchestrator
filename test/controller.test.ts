@@ -19,3 +19,9 @@ test("stops on reviewer capability failure and never closes", async () => {
   assert.equal(result.status, "blocked-human"); assert.equal(closed, false);
   assert.deepEqual(states, ["reviewing", "blocked-human"]);
 });
+
+test("does not send failed machine validation to either reviewer", async () => {
+  let reviewed = false;
+  const result = await new ReviewCloseController({ validate: async () => ({ ...packet, clean: false }), reviewer: { review: async () => { reviewed = true; return "APPROVE"; } }, terra: { review: async () => { reviewed = true; return { result: "APPROVE" }; } }, resumeLuna: async () => undefined, setState: async (state) => assert.equal(state, "blocked-human"), verifyRemoteBaseContains: async () => true, closeIssue: async () => undefined }).processWorkerDone();
+  assert.equal(result.status, "blocked-human"); assert.equal(reviewed, false);
+});
