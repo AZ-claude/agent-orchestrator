@@ -24,7 +24,7 @@ export interface CodexCommand {
   readonly args: readonly string[];
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** The only process command used by the pilot. Shell interpretation is forbidden. */
 export function codexCommand(invocation: CodexInvocation, executable = "codex"): CodexCommand {
@@ -59,21 +59,18 @@ export function observeCodexOutput(lines: Iterable<string>, exitCode: number | n
     if (isRateLimitEvent(event)) rateLimitRetryAt ??= explicitRetryAt(event);
   }
   const rateLimited = events.some(isRateLimitEvent);
-  const outcome: CodexOutcome = rateLimited ? "rate-limit" : exitCode === 0 ? "success" : exitCode === null ? "failed" : "crash";
+  const failed = events.some((event) => event.type === "turn.failed" || event.type === "error");
+  const outcome: CodexOutcome = rateLimited ? "rate-limit" : failed ? "failed" : exitCode === 0 ? "success" : exitCode === null ? "failed" : "crash";
   return { events, sessionId, outcome, exitCode, rateLimitRetryAt };
 }
 
 export function isRateLimitEvent(event: CodexEvent): boolean {
-  const values = [event.type, event.code, event.errorType, event.status, event.message, event.error]
-    .filter((value): value is string | number => typeof value === "string" || typeof value === "number")
-    .map(String)
-    .join(" ")
-    .toLowerCase();
+  const values = collectStrings(event).join(" ").toLowerCase();
   return event.status === 429 || event.code === 429 || /rate[ _-]?limit|usage[ _-]?limit|quota exceeded|too many requests/.test(values);
 }
 
 export function explicitSessionId(event: CodexEvent): string | null {
-  for (const key of ["session_id", "sessionId"]) {
+  for (const key of ["session_id", "sessionId", "thread_id", "threadId"]) {
     const value = event[key];
     if (typeof value === "string" && UUID.test(value)) return value;
   }
@@ -93,6 +90,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function collectStrings(value: unknown): string[] {
+  if (typeof value === "string" || typeof value === "number") return [String(value)];
+  if (Array.isArray(value)) return value.flatMap(collectStrings);
+  if (isRecord(value)) return Object.entries(value).flatMap(([key, nested]) => [key, ...collectStrings(nested)]);
+  return [];
+}
+
 /** Small injectable adapter used by process tests and by the runner. */
 export interface CodexProcess {
   readonly pid: number | undefined;
@@ -105,11 +109,15 @@ export interface CodexProcess {
 export function spawnCodex(invocation: CodexInvocation, cwd: string, executable = "codex"): CodexProcess {
   const command = codexCommand(invocation, executable);
   const child = spawn(command.command, [...command.args], { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+  let resolveExit: ((code: number | null) => void) | undefined;
+  const exitCode = new Promise<number | null>((resolve) => { resolveExit = resolve; });
+  child.once("exit", (code) => resolveExit?.(code));
+  child.once("error", () => resolveExit?.(null));
   return {
     pid: child.pid,
     stdout: linesFromStream(child.stdout),
     stderr: linesFromStream(child.stderr),
-    exitCode: new Promise((resolve) => child.once("exit", (code) => resolve(code))),
+    exitCode,
     kill: (signal = "SIGTERM") => child.kill(signal),
   };
 }
