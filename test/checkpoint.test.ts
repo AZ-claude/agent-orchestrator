@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CheckpointStore, migrateCheckpoint } from "../src/checkpoint/index.js";
@@ -19,5 +19,14 @@ test("checkpoint store writes, reloads, lists, and removes atomically", async ()
 
 test("supports the versioned migration envelope but rejects secret fields", () => {
   assert.deepEqual(migrateCheckpoint({ version: 1, checkpoint }), checkpoint);
-  assert.throws(() => migrateCheckpoint({ ...checkpoint, token: "secret" }), /validation failed/);
+  assert.throws(() => migrateCheckpoint({ version: 1, checkpoint, token: "secret" }), /unknown fields/);
+});
+
+test("serializes concurrent writes and rejects filename/task identity mismatches", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ao-checkpoint-concurrent-"));
+  const store = new CheckpointStore(root);
+  await Promise.all(Array.from({ length: 20 }, (_, index) => store.save({ ...checkpoint, attempt: index + 1 })));
+  assert.equal((await store.load("AO-04"))?.taskId, "AO-04");
+  await writeFile(join(root, "wrong.json"), JSON.stringify({ ...checkpoint, taskId: "AO-04" }));
+  await assert.rejects(() => store.load("wrong"), /filename\/taskId mismatch/);
 });

@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { mkdir, open, readFile, readdir, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { Checkpoint, checkpointSchema } from "../config/index.js";
 
 export const CHECKPOINT_VERSION = 1;
@@ -12,10 +13,10 @@ export class CheckpointStore {
     checkpointSchema.parse(checkpoint);
     const path = this.pathFor(checkpoint.taskId);
     await mkdir(this.root, { recursive: true });
-    const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
+    const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
     const handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
     try {
-      await handle.writeFile(`${JSON.stringify(checkpoint)}\n`, "utf8");
+      await handle.writeFile(`${JSON.stringify({ version: CHECKPOINT_VERSION, checkpoint })}\n`, "utf8");
       await handle.sync();
     } finally {
       await handle.close();
@@ -26,7 +27,9 @@ export class CheckpointStore {
   async load(taskId: string): Promise<Checkpoint | null> {
     try {
       const raw = JSON.parse(await readFile(this.pathFor(taskId), "utf8")) as unknown;
-      return migrateCheckpoint(raw);
+      const checkpoint = migrateCheckpoint(raw);
+      if (checkpoint.taskId !== taskId) throw new Error(`checkpoint filename/taskId mismatch: ${taskId} != ${checkpoint.taskId}`);
+      return checkpoint;
     } catch (error) {
       if (isNotFound(error)) return null;
       throw error;
@@ -44,7 +47,10 @@ export class CheckpointStore {
     const checkpoints: Checkpoint[] = [];
     for (const name of names.filter((item) => item.endsWith(".json")).sort()) {
       const value = JSON.parse(await readFile(join(this.root, name), "utf8")) as unknown;
-      checkpoints.push(migrateCheckpoint(value));
+      const taskId = name.slice(0, -".json".length);
+      const checkpoint = migrateCheckpoint(value);
+      if (checkpoint.taskId !== taskId) throw new Error(`checkpoint filename/taskId mismatch: ${taskId} != ${checkpoint.taskId}`);
+      checkpoints.push(checkpoint);
     }
     return checkpoints;
   }
@@ -64,7 +70,8 @@ export class CheckpointStore {
 }
 
 export function migrateCheckpoint(value: unknown): Checkpoint {
-  if (isRecord(value) && value.version === CHECKPOINT_VERSION && "checkpoint" in value) {
+  if (isRecord(value) && value.version === CHECKPOINT_VERSION) {
+    if (Object.keys(value).some((key) => key !== "version" && key !== "checkpoint") || !("checkpoint" in value)) throw new Error("checkpoint version envelope contains unknown fields");
     return checkpointSchema.parse(value.checkpoint);
   }
   // Version zero was the unwrapped checkpoint format. Parsing it strictly here
