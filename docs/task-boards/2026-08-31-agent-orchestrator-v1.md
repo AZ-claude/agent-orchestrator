@@ -14,7 +14,7 @@
 - `/slot` の既存 AGENTS/common operating rules を Luna/Terra prompt と Terra merge に優先適用する。
 - 全実装 task は、machine validation PASS後に implementation Luna が起動する read-only reviewer subagent の independent review が PASSするまで完了ではない。REWORK は同じ implementation Luna session へ自動で戻して、修正→machine validation→reviewer subagentを繰り返す。task ごとの review 指示や人間による prompt 転送は不要である。
 - reviewer subagent は implementation の reasoning/history を継承せず、task scope、source branch/HEAD、review packet のみを受け取る独立 agent context とする。subagent 起動を提供しない環境だけ、同じ review contract の別 Luna session をフォールバックにする。Terra は独立 review の依頼・指示・再依頼をしない。Terra の責務は reviewer PASS 後の semantic approval/merge のみである。
-- `tasks/agent-orchestrator-v1.yaml` の `workerCompletionContract` は、**すべての implementation Luna 起動 prompt にそのまま注入する実行契約**である。管理者は individual review prompt を発行せず、implementation Luna 自身が同一 session 内で reviewer subagent を起動し、`APPROVE` まで rework loop を完結させる。subagent capability が実際に無い場合だけ、その事実を structured result で返して停止し、フォールバックを判断する。
+- `tasks/agent-orchestrator-v1.yaml` の `workerCompletionContract` と [Luna implementation prompt template](../../prompts/luna-implementation-task.md) は、**すべての implementation Luna 起動 prompt にそのまま注入する実行契約**である。管理者は individual review prompt を発行せず、implementation Luna 自身が同一 session 内で reviewer subagent を起動し、`APPROVE` まで rework loop を完結させる。subagent capability が実際に無い場合だけ、その事実を structured result で返して停止し、フォールバックを判断する。
 - `AO-14` は `/slot` の disposable/documentation-only task だけで受入する。live runtime 変更は Human Gate の別 task とする。
 
 ## 1. 依存関係

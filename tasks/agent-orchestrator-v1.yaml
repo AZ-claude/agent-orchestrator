@@ -4,6 +4,7 @@ handoff:
   board: docs/task-boards/2026-08-31-agent-orchestrator-v1.md
   targetRepo: /Users/eita/projects/slot
   baseBranch: main
+  implementationPromptTemplate: prompts/luna-implementation-task.md
 
 # This contract is injected into every implementation-Luna prompt.  It is not
 # optional task prose: a worker must complete the review/rework loop itself.
