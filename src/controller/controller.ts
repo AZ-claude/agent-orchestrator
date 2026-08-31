@@ -61,5 +61,5 @@ export class ReviewCloseController {
 }
 
 function machineValidationPassed(packet: ReviewPacket): boolean {
-  return packet.pushed && packet.clean && packet.scope === "PASS" && packet.test.pass && packet.dependencies === "PASS";
+  return packet.pushed && packet.clean && packet.scope === "PASS" && packet.test.pass && packet.dependencies === "PASS" && packet.branchCheck === "PASS" && packet.worktreeCheck === "PASS" && packet.baseAncestor === "PASS";
 }

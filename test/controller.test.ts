@@ -25,3 +25,10 @@ test("does not send failed machine validation to either reviewer", async () => {
   const result = await new ReviewCloseController({ validate: async () => ({ ...packet, clean: false }), reviewer: { review: async () => { reviewed = true; return "APPROVE"; } }, terra: { review: async () => { reviewed = true; return { result: "APPROVE" }; } }, resumeLuna: async () => undefined, setState: async (state) => assert.equal(state, "blocked-human"), verifyRemoteBaseContains: async () => true, closeIssue: async () => undefined }).processWorkerDone();
   assert.equal(result.status, "blocked-human"); assert.equal(reviewed, false);
 });
+
+test("does not review without branch, worktree, or ancestor evidence", async () => {
+  let reviewed = false;
+  const result = await new ReviewCloseController({ validate: async () => ({ ...packet, baseAncestor: "FAIL" }), reviewer: { review: async () => { reviewed = true; return "APPROVE"; } }, terra: { review: async () => ({ result: "APPROVE" }) }, resumeLuna: async () => undefined, setState: async (state) => assert.equal(state, "blocked-human"), verifyRemoteBaseContains: async () => true, closeIssue: async () => undefined }).processWorkerDone();
+  assert.equal(result.status, "blocked-human");
+  assert.equal(reviewed, false);
+});
