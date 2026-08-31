@@ -11,8 +11,8 @@ const packet: ReviewPacket = { taskId: "PILOT-REVIEW", canonicalTask: "PILOT-REV
 export async function runPilotFixture(): Promise<PilotFixtureResult> {
   const safe = [makeTask("SAFE-A", "SAFE"), makeTask("SAFE-B", "SAFE")];
   const scheduler = new DeterministicScheduler();
-  const safeDispatch = scheduler.planDispatch({ tasks: safe.map((task) => ({ task, state: "ready", dependenciesClosed: true, humanGateSatisfied: false })), running: [], maxLunaWorkers: 2 }).map((task) => task.id);
-  const exclusiveBlocked = scheduler.planDispatch({ tasks: [{ task: makeTask("EXCLUSIVE", "EXCLUSIVE"), state: "ready", dependenciesClosed: true, humanGateSatisfied: false }], running: [{ taskId: "SAFE-A", parallel: "SAFE" }], maxLunaWorkers: 2 }).length === 0;
+  const safeDispatch = scheduler.planDispatch({ tasks: safe.map((task) => ({ task, state: "ready", dependenciesClosed: true, humanGateSatisfied: false, issueOpen: true, dependenciesAncestor: true })), running: [], maxLunaWorkers: 2 }).map((task) => task.id);
+  const exclusiveBlocked = scheduler.planDispatch({ tasks: [{ task: makeTask("EXCLUSIVE", "EXCLUSIVE"), state: "ready", dependenciesClosed: true, humanGateSatisfied: false, issueOpen: true, dependenciesAncestor: true }], running: [{ taskId: "SAFE-A", parallel: "SAFE" }], maxLunaWorkers: 2 }).length === 0;
   let review = 0;
   const controller = new ReviewCloseController({ validate: async () => packet, reviewer: { review: async () => { review += 1; return review === 1 ? { result: "REWORK", reason: "fixture rework" } : "APPROVE"; } }, terra: { review: async () => ({ result: "APPROVE" }) }, resumeLuna: async () => undefined, setState: async () => undefined, verifyRemoteBaseContains: async () => true, closeIssue: async () => undefined });
   const result = await controller.processWorkerDone();

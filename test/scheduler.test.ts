@@ -5,7 +5,7 @@ import { ManifestTask } from "../src/config/index.js";
 
 const task = (id: string, parallel: "SAFE" | "EXCLUSIVE", humanGate = false): ManifestTask => ({ id, title: id, dependsOn: [], parallel, humanGate, allowedPaths: ["src/**"], test: "npm test" });
 const snapshot = (tasks: SchedulerSnapshot["tasks"], running: SchedulerSnapshot["running"] = []): SchedulerSnapshot => ({ tasks, running, maxLunaWorkers: 2 });
-const item = (t: ManifestTask, state: "ready" | "running" = "ready", dependenciesClosed = true, humanGateSatisfied = false) => ({ task: t, state, dependenciesClosed, humanGateSatisfied });
+const item = (t: ManifestTask, state: "ready" | "running" = "ready", dependenciesClosed = true, humanGateSatisfied = false) => ({ task: t, state, dependenciesClosed, humanGateSatisfied, issueOpen: true, dependenciesAncestor: true });
 
 test("keeps manifest order and enforces bounded SAFE concurrency", () => {
   const safe1 = task("AO-01", "SAFE"); const safe2 = task("AO-02", "SAFE");
@@ -21,8 +21,8 @@ test("serializes EXCLUSIVE and blocks unmet dependencies/gates", () => {
 
 test("does not let a later EXCLUSIVE task bypass an earlier SAFE task", () => {
   const scheduler = new DeterministicScheduler();
-  const safe = task("SAFE", "SAFE"); const exclusive = task("EXCLUSIVE", "EXCLUSIVE");
-  assert.deepEqual(scheduler.planDispatch(snapshot([item(safe), item(exclusive)])), [safe]);
+  const safe = task("SAFE", "SAFE"); const safeLater = task("SAFE-LATER", "SAFE"); const exclusive = task("EXCLUSIVE", "EXCLUSIVE");
+  assert.deepEqual(scheduler.planDispatch(snapshot([item(safe), item(exclusive), item(safeLater)])), [safe, safeLater]);
   assert.deepEqual(scheduler.planDispatch(snapshot([item(exclusive), item(safe)])), [exclusive]);
 });
 
@@ -33,4 +33,10 @@ test("requires open issues and merged dependency evidence and enforces transitio
   assert.deepEqual(scheduler.planDispatch(snapshot([{ ...item(safe), dependenciesAncestor: false }])), []);
   assert.equal(transitionState("ready", "running"), "running");
   assert.throws(() => transitionState("blocked-human", "running"), /invalid scheduler transition/);
+});
+
+test("fails closed when issue or ancestor evidence is absent", () => {
+  const safe = task("SAFE", "SAFE");
+  const scheduler = new DeterministicScheduler();
+  assert.deepEqual(scheduler.planDispatch(snapshot([{ task: safe, state: "ready", dependenciesClosed: true, humanGateSatisfied: false }])), []);
 });

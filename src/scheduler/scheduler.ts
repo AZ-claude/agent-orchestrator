@@ -9,18 +9,21 @@ export class DeterministicScheduler {
     const anyExclusive = running.some((item) => item.parallel === "EXCLUSIVE");
     const safeCount = running.filter((item) => item.parallel === "SAFE").length;
     if (anyExclusive) return [];
-    const candidates = snapshot.tasks
-      .filter((item) => item.state === "ready" && item.issueOpen !== false && item.dependenciesClosed && item.dependenciesAncestor !== false && (!item.task.humanGate || item.humanGateSatisfied))
-      .filter((item) => item.task.parallel === "EXCLUSIVE" ? running.length === 0 : safeCount < snapshot.maxLunaWorkers);
-    return candidates.slice(0, Math.max(0, snapshot.maxLunaWorkers - safeCount)).map((item) => item.task);
+    const availableSafe = Math.max(0, snapshot.maxLunaWorkers - safeCount);
+    const result: ManifestTask[] = [];
+    for (const item of snapshot.tasks) {
+      if (item.state !== "ready" || item.issueOpen !== true || !item.dependenciesClosed || item.dependenciesAncestor !== true || (item.task.humanGate && !item.humanGateSatisfied)) continue;
+      if (item.task.parallel === "EXCLUSIVE") {
+        if (running.length === 0 && result.length === 0) return [item.task];
+        continue;
+      }
+      if (result.length < availableSafe) result.push(item.task);
+    }
+    return result;
   }
 
   planDispatch(snapshot: SchedulerSnapshot): readonly ManifestTask[] {
-    const candidates = this.ready(snapshot);
-    const exclusiveIndex = candidates.findIndex((task) => task.parallel === "EXCLUSIVE");
-    if (exclusiveIndex < 0) return candidates;
-    const exclusive = candidates[exclusiveIndex];
-    return exclusiveIndex === 0 && snapshot.running.length === 0 && exclusive !== undefined ? [exclusive] : candidates.slice(0, exclusiveIndex);
+    return this.ready(snapshot);
   }
 }
 
@@ -40,6 +43,6 @@ export function transitionState(from: ExecutionState, to: ExecutionState): Execu
   return to;
 }
 
-export function schedulerTasks(manifest: TaskManifest, states: ReadonlyMap<string, ExecutionState>, closed: ReadonlySet<string>, humanGates: ReadonlySet<string>): SchedulerTask[] {
-  return manifest.tasks.map((task) => ({ task, state: states.get(task.id) ?? "ready", dependenciesClosed: task.dependsOn.every((dependency) => closed.has(dependency)), humanGateSatisfied: humanGates.has(task.id) }));
+export function schedulerTasks(manifest: TaskManifest, states: ReadonlyMap<string, ExecutionState>, closed: ReadonlySet<string>, humanGates: ReadonlySet<string>, issueOpen: ReadonlySet<string> = new Set(), dependenciesAncestor: ReadonlySet<string> = new Set()): SchedulerTask[] {
+  return manifest.tasks.map((task) => ({ task, state: states.get(task.id) ?? "ready", dependenciesClosed: task.dependsOn.every((dependency) => closed.has(dependency)), humanGateSatisfied: humanGates.has(task.id), issueOpen: issueOpen.has(task.id), dependenciesAncestor: dependenciesAncestor.has(task.id) }));
 }
