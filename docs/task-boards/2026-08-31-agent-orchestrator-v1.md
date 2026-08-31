@@ -46,21 +46,21 @@ reviewer subagent の標準 prompt は implementation Luna が `workerCompletion
 
 | ID | Task | 状態 | 依存 | Parallel | 完了条件 |
 |---|---|---|---|---|---|
-| AO-01 | Codex CLI lifecycle contract spike | PLANNED | AO-02 | SAFE | installed Codex の `exec --json` / `exec resume` から session ID・正常終了・rate-limit/crash の観測可能な契約を fixture と adapter test に固定する。未確認の output を推測しない。 |
-| AO-02 | Node/TS scaffold と設定/schema | PLANNED | — | SAFE | build/lint/test と pilot-only config、manifest/checkpoint/review-result schema が成立する。generic worker abstraction は作らない。 |
-| AO-03 | canonical task manifest loader | PLANNED | AO-02 | SAFE | YAML manifest を parse/validate し、duplicate ID/cycle/unknown dependency/invalid parallel を fail closed にする。Markdown は生成対象であり parser にしない。 |
-| AO-04 | local checkpoint store | PLANNED | AO-01, AO-02 | SAFE | atomic write、state migration、retry/attempt/session fields、restart load を unit test で証明する。checkpoint に仕様・secret を保存しない。 |
-| AO-05 | GitHub Issue projector/reader | PLANNED | AO-02, AO-03 | SAFE | labels、parent/sub-issue、blocking relation、idempotent marker、排他的 state label、Issue snapshot を fake `gh` integration で証明する。Projects は使わない。 |
-| AO-06 | Git/worktree adapter | PLANNED | AO-02 | SAFE | task 専用 branch/worktree の作成・再利用、remote/HEAD/status/changed files/scope/ancestor 判定を disposable repo で証明する。main merge は実装しない。 |
-| AO-07 | Luna runner/process monitor | PLANNED | AO-01, AO-04, AO-06 | SAFE | new/resume process、JSONL log、PID/session capture、有限 retry、exit/recovery event を fake Codex で検証する。AI に exit reason を解釈させない。 |
-| AO-08 | machine validator と review packet | PLANNED | AO-02, AO-03, AO-06 | SAFE | push/clean/changed paths/test/dependency の PASS/FAIL evidence と compact packet を生成する。semantic review/merge はしない。 |
-| AO-09 | deterministic scheduler | PLANNED | AO-04, AO-05, AO-07, AO-08 | EXCLUSIVE | ready 条件、bounded SAFE concurrency、EXCLUSIVE serialization、state transition の table-driven test が PASS する。priority optimizer/lock framework は作らない。 |
-| AO-10 | Terra review runner/result parser | PLANNED | AO-01, AO-02 | SAFE | saved Terra session に packet を送信し、schema-valid APPROVE/REWORK/BLOCKED_HUMAN だけを受理する。new Terra session の自動作成はしない。 |
-| AO-11 | reviewer subagent/rework/merge-close controller | PLANNED | AO-09, AO-10 | EXCLUSIVE | machine validation→implementation Luna の reviewer subagent→Terra semantic approval の順序、Luna/Terra REWORK の same Luna session dispatch、Terra APPROVE 後の remote-base ancestor 確認→Issue close、BLOCKED_HUMAN stop を integration test で証明する。subagent 非対応時だけ別 Luna session を使う。daemon merge は禁止。 |
-| AO-12 | startup reconcile と rate-limit pause | PLANNED | AO-04, AO-07, AO-08, AO-10 | SAFE | checkpoint/Issue/process/Git の代表不整合を安全に復元し、rate limit は pause→same session resume となる。reboot で完了済み task を再実行しない。 |
-| AO-13 | daemon CLI/logging/operational runbook | PLANNED | AO-09, AO-11, AO-12 | EXCLUSIVE | bootstrap/run-once/daemon/reconcile/status の CLI と privacy-safe log、operator runbook、failure diagnosis がある。web dashboard は作らない。 |
-| AO-14 | `/slot` non-production pilot acceptance | PLANNED | AO-13 | EXCLUSIVE | two SAFE tasks、EXCLUSIVE task、review/rework、restart/rate-limit fixture scenario を実証し、結果を Git に残す。production DB/Scheduler は触らない。 |
-| AO-15 | final acceptance と durable evidence | PLANNED | AO-14 | EXCLUSIVE | v1 acceptance 1–18 の evidence matrix と既知制約を記録し、Terra final acceptance を実施する。 |
+| AO-01 | Codex CLI lifecycle contract spike | DONE | AO-02 | SAFE | installed Codex の `exec --json` / `exec resume` から session ID・正常終了・rate-limit/crash の観測可能な契約を fixture と adapter test に固定する。未確認の output を推測しない。 |
+| AO-02 | Node/TS scaffold と設定/schema | DONE | — | SAFE | build/lint/test と pilot-only config、manifest/checkpoint/review-result schema が成立する。generic worker abstraction は作らない。 |
+| AO-03 | canonical task manifest loader | DONE | AO-02 | SAFE | YAML manifest を parse/validate し、duplicate ID/cycle/unknown dependency/invalid parallel を fail closed にする。Markdown は生成対象であり parser にしない。 |
+| AO-04 | local checkpoint store | DONE | AO-01, AO-02 | SAFE | atomic write、state migration、retry/attempt/session fields、restart load を unit test で証明する。checkpoint に仕様・secret を保存しない。 |
+| AO-05 | GitHub Issue projector/reader | DONE | AO-02, AO-03 | SAFE | labels、parent/sub-issue、blocking relation、idempotent marker、排他的 state label、Issue snapshot を fake `gh` integration で証明する。Projects は使わない。 |
+| AO-06 | Git/worktree adapter | DONE | AO-02 | SAFE | task 専用 branch/worktree の作成・再利用、remote/HEAD/status/changed files/scope/ancestor 判定を disposable repo で証明する。main merge は実装しない。 |
+| AO-07 | Luna runner/process monitor | DONE | AO-01, AO-04, AO-06 | SAFE | new/resume process、JSONL log、PID/session capture、有限 retry、exit/recovery event を fake Codex で検証する。AI に exit reason を解釈させない。 |
+| AO-08 | machine validator と review packet | DONE | AO-02, AO-03, AO-06 | SAFE | push/clean/changed paths/test/dependency の PASS/FAIL evidence と compact packet を生成する。semantic review/merge はしない。 |
+| AO-09 | deterministic scheduler | DONE | AO-04, AO-05, AO-07, AO-08 | EXCLUSIVE | ready 条件、bounded SAFE concurrency、EXCLUSIVE serialization、state transition の table-driven test が PASS する。priority optimizer/lock framework は作らない。 |
+| AO-10 | Terra review runner/result parser | DONE | AO-01, AO-02 | SAFE | saved Terra session に packet を送信し、schema-valid APPROVE/REWORK/BLOCKED_HUMAN だけを受理する。new Terra session の自動作成はしない。 |
+| AO-11 | reviewer subagent/rework/merge-close controller | DONE | AO-09, AO-10 | EXCLUSIVE | machine validation→implementation Luna の reviewer subagent→Terra semantic approval の順序、Luna/Terra REWORK の same Luna session dispatch、Terra APPROVE 後の remote-base ancestor 確認→Issue close、BLOCKED_HUMAN stop を integration test で証明する。subagent 非対応時だけ別 Luna session を使う。daemon merge は禁止。 |
+| AO-12 | startup reconcile と rate-limit pause | DONE | AO-04, AO-07, AO-08, AO-10 | SAFE | checkpoint/Issue/process/Git の代表不整合を安全に復元し、rate limit は pause→same session resume となる。reboot で完了済み task を再実行しない。 |
+| AO-13 | daemon CLI/logging/operational runbook | DONE | AO-09, AO-11, AO-12 | EXCLUSIVE | bootstrap/run-once/daemon/reconcile/status の CLI と privacy-safe log、operator runbook、failure diagnosis がある。web dashboard は作らない。 |
+| AO-14 | `/slot` non-production pilot acceptance | DONE | AO-13 | EXCLUSIVE | two SAFE tasks、EXCLUSIVE task、review/rework、restart/rate-limit fixture scenario を実証し、結果を Git に残す。production DB/Scheduler は触らない。 |
+| AO-15 | final acceptance と durable evidence | DONE | AO-14 | EXCLUSIVE | v1 acceptance 1–18 の evidence matrix と既知制約を記録し、Terra final acceptance を実施する。 |
 | AO-16 | launchd packaging/install verification | PLANNED | AO-13 | EXCLUSIVE | LaunchAgent template/install/uninstall/status runbook と non-destructive verification を作る。実 host install は operator が明示実行する。 |
 
 ## 3. 実装順の運用
