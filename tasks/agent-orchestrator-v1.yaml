@@ -1,0 +1,120 @@
+handoff:
+  id: agent-orchestrator-v1
+  source: docs/HANDOFF_2026-08-31_AGENT_ORCHESTRATOR_V1_REQUIREMENTS.md
+  board: docs/task-boards/2026-08-31-agent-orchestrator-v1.md
+  targetRepo: /Users/eita/projects/slot
+  baseBranch: main
+
+tasks:
+  - id: AO-01
+    title: Codex CLI lifecycle contract spike
+    dependsOn: []
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/codex/**, test/fixtures/codex/**, test/codex/**]
+    test: npm test -- codex-lifecycle
+  - id: AO-02
+    title: Node/TS scaffold and configuration schema
+    dependsOn: []
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [package.json, package-lock.json, tsconfig.json, src/config/**, test/config/**]
+    test: npm test -- config
+  - id: AO-03
+    title: Canonical task manifest loader
+    dependsOn: []
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/manifest/**, test/manifest/**]
+    test: npm test -- manifest
+  - id: AO-04
+    title: Local checkpoint store
+    dependsOn: [AO-01, AO-02]
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/checkpoint/**, test/checkpoint/**]
+    test: npm test -- checkpoint
+  - id: AO-05
+    title: GitHub Issue projector and reader
+    dependsOn: [AO-02, AO-03]
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/github/**, test/github/**]
+    test: npm test -- github
+  - id: AO-06
+    title: Git worktree adapter
+    dependsOn: [AO-02]
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/git/**, test/git/**]
+    test: npm test -- git
+  - id: AO-07
+    title: Luna runner and process monitor
+    dependsOn: [AO-01, AO-04, AO-06]
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/luna/**, test/luna/**, test/fixtures/codex/**]
+    test: npm test -- luna
+  - id: AO-08
+    title: Machine validator and review packet
+    dependsOn: [AO-02, AO-03, AO-06]
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/validation/**, test/validation/**]
+    test: npm test -- validation
+  - id: AO-09
+    title: Deterministic scheduler
+    dependsOn: [AO-04, AO-05, AO-07, AO-08]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/scheduler/**, test/scheduler/**]
+    test: npm test -- scheduler
+  - id: AO-10
+    title: Terra review runner and result parser
+    dependsOn: [AO-01, AO-02]
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/terra/**, test/terra/**, test/fixtures/codex/**]
+    test: npm test -- terra
+  - id: AO-11
+    title: Review rework and merge-close controller
+    dependsOn: [AO-09, AO-10]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/controller/**, test/controller/**]
+    test: npm test -- controller
+  - id: AO-12
+    title: Startup reconcile and rate-limit pause
+    dependsOn: [AO-04, AO-07, AO-08, AO-10]
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/reconcile/**, test/reconcile/**]
+    test: npm test -- reconcile
+  - id: AO-13
+    title: Daemon CLI logging and operational runbook
+    dependsOn: [AO-09, AO-11, AO-12]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/cli/**, src/logging/**, docs/runbooks/**, test/cli/**]
+    test: npm test -- cli
+  - id: AO-14
+    title: Slot non-production pilot acceptance
+    dependsOn: [AO-13]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [docs/agent-runs/**, test/pilot/**, scripts/pilot/**]
+    test: npm test -- pilot
+  - id: AO-15
+    title: Final acceptance and durable evidence
+    dependsOn: [AO-14]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [docs/agent-runs/**, docs/task-boards/**]
+    test: npm test -- final-acceptance
+  - id: AO-16
+    title: Launchd packaging and install verification
+    dependsOn: [AO-13]
+    parallel: EXCLUSIVE
+    humanGate: true
+    allowedPaths: [packaging/launchd/**, docs/runbooks/**, test/launchd/**]
+    test: npm test -- launchd
