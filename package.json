@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "test": "npm run build && node --test dist/test/config.test.js && :"
+    "test": "npm run build && node --input-type=module --eval 'import { spawnSync } from \"node:child_process\"; const tests = new Map([[\"config\", \"dist/test/config.test.js\"], [\"codex-lifecycle\", \"dist/test/codex/codex-lifecycle.test.js\"], [\"manifest\", \"dist/test/manifest/loader.test.js\"]]); const selector = process.argv[1]; const testFile = tests.get(selector); if (testFile === undefined) { console.error(`Unknown test selector: ${selector ?? \"(missing)\"}`); process.exit(1); } const result = spawnSync(process.execPath, [\"--test\", testFile], { stdio: \"inherit\" }); process.exit(result.status ?? 1);'"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

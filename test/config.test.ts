@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -22,6 +24,16 @@ test("default config is a single /slot pilot and is independently cloned", () =>
   assert.equal(first.maxLunaWorkers, 2);
   assert.notStrictEqual(first, second);
   assert.notStrictEqual(first.pilot, second.pilot);
+});
+
+test("package test dispatcher maps every supported selector to its compiled test", () => {
+  const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")) as { scripts: { test: string } };
+  const testScript = packageJson.scripts.test;
+
+  assert.match(testScript, /\["config", "dist\/test\/config\.test\.js"\]/);
+  assert.match(testScript, /\["codex-lifecycle", "dist\/test\/codex\/codex-lifecycle\.test\.js"\]/);
+  assert.match(testScript, /\["manifest", "dist\/test\/manifest\/loader\.test\.js"\]/);
+  assert.match(testScript, /Unknown test selector/);
 });
 
 test("config schema rejects a multi-repo-shaped config and unknown fields", () => {
