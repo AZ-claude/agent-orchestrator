@@ -75,6 +75,20 @@ test("fails closed for invalid parallel policies", () => {
   expectValidationError(validManifest.replace("parallel: EXCLUSIVE", "parallel: SOMETIMES"), /parallel.*one of SAFE, EXCLUSIVE/);
 });
 
+test("fails closed for unsupported block scalar modifiers", () => {
+  assert.throws(() => parseManifest(validManifest.replace("title: First task", "title: |-")), ManifestParseError);
+  assert.throws(() => parseManifest(validManifest.replace("title: First task", "title: >-")), ManifestParseError);
+});
+
+test("fails closed for malformed quoted scalars with trailing tokens", () => {
+  assert.throws(() => parseManifest(validManifest.replace("title: First task", "title: 'First task' junk")), ManifestParseError);
+});
+
+test("accepts valid double-quoted scalars", () => {
+  const manifest = parseManifest(validManifest.replace("title: First task", 'title: "First task"'));
+  assert.equal(manifest.tasks[0]?.title, "First task");
+});
+
 test("rejects duplicate YAML mapping keys", () => {
   assert.throws(() => parseManifest(validManifest.replace("  id: agent-orchestrator-v1", "  id: agent-orchestrator-v1\n  id: duplicate")), ManifestParseError);
 });
