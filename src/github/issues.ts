@@ -21,8 +21,8 @@ export class GhCommandError extends Error {
 }
 
 export class CliGhClient implements GhClient {
-  constructor(private readonly runCommand: CommandRunner = defaultCommandRunner, private readonly repo = PILOT_TARGET_REPO) {}
-  run(args: readonly string[]): Promise<CommandResult> { return this.runCommand("gh", [...args, "--repo", this.repo]); }
+  constructor(private readonly runCommand: CommandRunner = defaultCommandRunner) {}
+  run(args: readonly string[]): Promise<CommandResult> { return this.runCommand("gh", [...args, "--repo", PILOT_TARGET_REPO]); }
 }
 
 export const STATE_LABEL = (state: ExecutionState): string => `ao:state:${state}`;
