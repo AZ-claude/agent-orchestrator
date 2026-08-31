@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DeterministicScheduler, SchedulerSnapshot } from "../src/scheduler/index.js";
+import { DeterministicScheduler, SchedulerSnapshot, transitionState } from "../src/scheduler/index.js";
 import { ManifestTask } from "../src/config/index.js";
 
 const task = (id: string, parallel: "SAFE" | "EXCLUSIVE", humanGate = false): ManifestTask => ({ id, title: id, dependsOn: [], parallel, humanGate, allowedPaths: ["src/**"], test: "npm test" });
@@ -17,4 +17,20 @@ test("serializes EXCLUSIVE and blocks unmet dependencies/gates", () => {
   const scheduler = new DeterministicScheduler();
   assert.deepEqual(scheduler.planDispatch(snapshot([item(exclusive), item(gated, "ready", false)])), [exclusive]);
   assert.deepEqual(scheduler.planDispatch(snapshot([item(exclusive)], [{ taskId: "AO-01", parallel: "SAFE" }])), []);
+});
+
+test("does not let a later EXCLUSIVE task bypass an earlier SAFE task", () => {
+  const scheduler = new DeterministicScheduler();
+  const safe = task("SAFE", "SAFE"); const exclusive = task("EXCLUSIVE", "EXCLUSIVE");
+  assert.deepEqual(scheduler.planDispatch(snapshot([item(safe), item(exclusive)])), [safe]);
+  assert.deepEqual(scheduler.planDispatch(snapshot([item(exclusive), item(safe)])), [exclusive]);
+});
+
+test("requires open issues and merged dependency evidence and enforces transitions", () => {
+  const safe = task("SAFE", "SAFE");
+  const scheduler = new DeterministicScheduler();
+  assert.deepEqual(scheduler.planDispatch(snapshot([{ ...item(safe), issueOpen: false }])), []);
+  assert.deepEqual(scheduler.planDispatch(snapshot([{ ...item(safe), dependenciesAncestor: false }])), []);
+  assert.equal(transitionState("ready", "running"), "running");
+  assert.throws(() => transitionState("blocked-human", "running"), /invalid scheduler transition/);
 });
