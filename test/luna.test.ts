@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CodexProcess } from "../src/codex/index.js";
 import { LunaRunner } from "../src/luna/index.js";
 
@@ -9,17 +12,22 @@ function fakeProcess(lines: string[], code: number): CodexProcess {
 }
 
 test("runner captures JSONL, PID/session and exit outcome", async () => {
-  const runner = new LunaRunner(() => fakeProcess([JSON.stringify({ type: "session_started", session_id: id })], 0));
+  const logRoot = await mkdtemp(join(tmpdir(), "ao-luna-log-"));
+  const runner = new LunaRunner(() => fakeProcess([JSON.stringify({ type: "session_started", session_id: id })], 0), { logRoot });
   const result = await runner.start("prompt", "/tmp/worktree");
   assert.equal(result.pid, 42);
   assert.equal(result.sessionId, id);
   assert.equal(result.outcome, "success");
   assert.deepEqual(result.stderr, ["stderr"]);
+  assert.match(await readFile(result.logPath, "utf8"), /session_started/);
+  assert.equal(result.recoveryEvent, "success");
 });
 
 test("resume uses the saved session through the same runner", async () => {
   let seen: unknown;
-  const runner = new LunaRunner((invocation) => { seen = invocation; return fakeProcess([], 1); });
-  await runner.resume(id, "rework", "/tmp/worktree");
+  const runner = new LunaRunner((invocation) => { seen = invocation; return fakeProcess([], 1); }, { logRoot: await mkdtemp(join(tmpdir(), "ao-luna-log-")), maxResumeAttempts: 2 });
+  const result = await runner.resumeWithRetry(id, "rework", "/tmp");
   assert.deepEqual(seen, { kind: "resume", sessionId: id, prompt: "rework" });
+  assert.equal(result.attempt, 2);
+  assert.throws(() => runner.resume(id, "too many", "/tmp", 3), /between 1 and 2/);
 });
