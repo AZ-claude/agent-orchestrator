@@ -97,6 +97,7 @@ test("allowedPaths accepts normal repository globs and rejects repository escape
   for (const escaped of ["../outside", "/absolute/outside", "src/../../outside", "C:/outside", "\\\\server\\outside"]) {
     assert.throws(() => manifestSchema.parse({ ...baseManifest, tasks: [{ ...baseManifest.tasks[0], allowedPaths: [escaped] }] }), /repository-relative glob/);
   }
+  assert.equal(manifestSchema.safeParse({ ...baseManifest, handoff: { ...baseManifest.handoff, implementationPromptTemplate: "bad\0path" } }).success, false);
 });
 
 test("stateRoot must be outside the pilot repository", () => {

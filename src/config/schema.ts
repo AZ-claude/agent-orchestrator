@@ -464,7 +464,7 @@ function requiredAbsolutePathOutside(value: Record<string, unknown>, key: string
 
 function requiredRelativePath(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): string | undefined {
   const candidate = requiredString(value, key, path, issues);
-  if (candidate !== undefined && (candidate.startsWith("/") || candidate.split("/").includes(".."))) {
+  if (candidate !== undefined && (candidate.includes("\0") || candidate.includes("\\") || /^[A-Za-z]:/.test(candidate) || candidate.startsWith("/") || candidate.split("/").includes(".."))) {
     issues.push(issue(`${path}.${key}`, "must be a repository-relative path"));
     return undefined;
   }
