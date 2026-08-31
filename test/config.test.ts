@@ -6,6 +6,8 @@ import {
   configSchema,
   defaultPilotConfig,
   manifestSchema,
+  parseManifest,
+  parseManifestForPilot,
   parseReviewResult,
   SchemaValidationError,
 } from "../src/config/schema.js";
@@ -30,6 +32,7 @@ test("config schema rejects a multi-repo-shaped config and unknown fields", () =
 
   assert.equal(result.success, false);
   if (!result.success) assert.match(result.error.message, /repositories.*not allowed/);
+  assert.throws(() => configSchema.parse({ ...defaultPilotConfig(), pilot: { ...defaultPilotConfig().pilot, targetRepo: "/Users/eita/projects/other" } }), /pilot target/);
 });
 
 test("manifest schema validates the YAML projection shape without doing DAG semantics", () => {
@@ -55,6 +58,33 @@ test("manifest schema validates the YAML projection shape without doing DAG sema
   };
 
   assert.deepEqual(manifestSchema.parse(manifest), manifest);
+  assert.throws(() => parseManifest({ ...manifest, handoff: { ...manifest.handoff, targetRepo: "/Users/eita/projects/other" } }), /pilot target/);
+  assert.throws(() => parseManifestForPilot({ ...manifest, handoff: { ...manifest.handoff, targetRepo: "/tmp/other" } }, defaultPilotConfig()), /configured pilot target/);
+});
+
+test("allowedPaths accepts normal repository globs and rejects repository escapes", () => {
+  const baseManifest = {
+    handoff: {
+      id: "agent-orchestrator-v1",
+      source: "docs/HANDOFF.md",
+      board: "docs/task-boards/board.md",
+      targetRepo: "/Users/eita/projects/slot",
+      baseBranch: "main",
+    },
+    tasks: [{ id: "AO-02", title: "schema", dependsOn: [], parallel: "SAFE", humanGate: false, allowedPaths: ["src/config/**", "package.json"], test: "npm test -- config" }],
+  };
+  assert.deepEqual(manifestSchema.parse(baseManifest).tasks[0]?.allowedPaths, ["src/config/**", "package.json"]);
+  for (const escaped of ["../outside", "/absolute/outside", "src/../../outside", "C:/outside", "\\\\server\\outside"]) {
+    assert.throws(() => manifestSchema.parse({ ...baseManifest, tasks: [{ ...baseManifest.tasks[0], allowedPaths: [escaped] }] }), /repository-relative glob/);
+  }
+});
+
+test("stateRoot must be outside the pilot repository", () => {
+  const config = defaultPilotConfig();
+  assert.doesNotThrow(() => configSchema.parse(config));
+  assert.throws(() => configSchema.parse({ ...config, stateRoot: "/Users/eita/projects/slot/state" }), /outside the pilot target repository/);
+  assert.throws(() => configSchema.parse({ ...config, stateRoot: "/Users/eita/projects/slot/../slot/state" }), /outside the pilot target repository/);
+  assert.doesNotThrow(() => configSchema.parse({ ...config, stateRoot: "/Users/eita/projects/agent-orchestrator-state" }));
 });
 
 test("checkpoint schema contains only restart data and allows absent process values", () => {

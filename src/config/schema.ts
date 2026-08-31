@@ -1,3 +1,5 @@
+import { isAbsolute, relative, resolve } from "node:path";
+
 /**
  * Runtime contracts shared by the daemon components.
  *
@@ -29,6 +31,9 @@ export type CheckpointPhase = (typeof CHECKPOINT_PHASES)[number];
 export const REVIEW_RESULTS = ["APPROVE", "REWORK", "BLOCKED_HUMAN"] as const;
 
 export type ReviewResultKind = (typeof REVIEW_RESULTS)[number];
+
+/** v1 is intentionally limited to the first pilot repository. */
+export const PILOT_TARGET_REPO = "/Users/eita/projects/slot";
 
 export interface PilotConfig {
   readonly version: 1;
@@ -109,7 +114,7 @@ export class SchemaValidationError extends Error {
 const DEFAULT_CONFIG: PilotConfig = {
   version: 1,
   pilot: {
-    targetRepo: "/Users/eita/projects/slot",
+    targetRepo: PILOT_TARGET_REPO,
     baseBranch: "main",
     manifestPath: "tasks/agent-orchestrator-v1.yaml",
     boardPath: "docs/task-boards/2026-08-31-agent-orchestrator-v1.md",
@@ -131,7 +136,14 @@ export function parsePilotConfig(value: unknown): PilotConfig {
 }
 
 export function parseManifest(value: unknown): TaskManifest {
-  return parseWith("task manifest", value, validateManifest);
+  return parseWith("task manifest", value, (input, path, issues) => validateManifest(input, path, issues, PILOT_TARGET_REPO));
+}
+
+export function parseManifestForPilot(value: unknown, config: Pick<PilotConfig, "pilot">): TaskManifest {
+  if (config.pilot.targetRepo !== PILOT_TARGET_REPO) {
+    throw new SchemaValidationError("task manifest", [{ path: "$.pilot.targetRepo", message: `must equal the v1 pilot target ${PILOT_TARGET_REPO}` }]);
+  }
+  return parseWith("task manifest", value, (input, path, issues) => validateManifest(input, path, issues, config.pilot.targetRepo));
 }
 
 export function parseCheckpoint(value: unknown): Checkpoint {
@@ -155,7 +167,20 @@ export interface SafeParseFailure {
 export type SafeParseResult<T> = SafeParseSuccess<T> | SafeParseFailure;
 
 export const configSchema = makeSchema(parsePilotConfig);
-export const manifestSchema = makeSchema(parseManifest);
+export const manifestSchema = {
+  parse(value: unknown, config?: Pick<PilotConfig, "pilot">): TaskManifest {
+    return config === undefined ? parseManifest(value) : parseManifestForPilot(value, config);
+  },
+  safeParse(value: unknown, config?: Pick<PilotConfig, "pilot">): SafeParseResult<TaskManifest> {
+    try {
+      const data = config === undefined ? parseManifest(value) : parseManifestForPilot(value, config);
+      return { success: true, data };
+    } catch (error) {
+      if (error instanceof SchemaValidationError) return { success: false, error };
+      throw error;
+    }
+  },
+};
 export const checkpointSchema = makeSchema(parseCheckpoint);
 export const reviewResultSchema = makeSchema(parseReviewResult);
 
@@ -194,7 +219,7 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
   rejectUnknown(value, ["version", "pilot", "stateRoot", "pollIntervalMs", "maxLunaWorkers", "maxResumeAttempts", "retryIntervalMs"], path, issues);
   const version = requiredLiteral(value, "version", 1, path, issues);
   const pilot = requiredRecord(value, "pilot", path, issues);
-  const stateRoot = requiredAbsolutePath(value, "stateRoot", path, issues);
+  const stateRoot = requiredAbsolutePathOutside(value, "stateRoot", PILOT_TARGET_REPO, path, issues);
   const pollIntervalMs = requiredPositiveInteger(value, "pollIntervalMs", path, issues);
   const maxLunaWorkers = requiredPositiveInteger(value, "maxLunaWorkers", path, issues);
   const maxResumeAttempts = requiredNonNegativeInteger(value, "maxResumeAttempts", path, issues);
@@ -203,7 +228,7 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
   if (pilot) {
     rejectUnknown(pilot, ["targetRepo", "baseBranch", "manifestPath", "boardPath"], `${path}.pilot`, issues);
   }
-  const targetRepo = pilot ? requiredAbsolutePath(pilot, "targetRepo", `${path}.pilot`, issues) : undefined;
+  const targetRepo = pilot ? requiredPilotTarget(pilot, "targetRepo", `${path}.pilot`, issues) : undefined;
   const baseBranch = pilot ? requiredString(pilot, "baseBranch", `${path}.pilot`, issues) : undefined;
   const manifestPath = pilot ? requiredRelativePath(pilot, "manifestPath", `${path}.pilot`, issues) : undefined;
   const boardPath = pilot ? requiredRelativePath(pilot, "boardPath", `${path}.pilot`, issues) : undefined;
@@ -225,7 +250,7 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
   return undefined;
 }
 
-function validateManifest(value: unknown, path: string, issues: ValidationIssue[]): TaskManifest | undefined {
+function validateManifest(value: unknown, path: string, issues: ValidationIssue[], expectedTargetRepo: string): TaskManifest | undefined {
   if (!isRecord(value)) {
     issues.push(issue(path, "must be an object"));
     return undefined;
@@ -236,7 +261,7 @@ function validateManifest(value: unknown, path: string, issues: ValidationIssue[
   if (handoff) {
     rejectUnknown(handoff, ["id", "source", "board", "targetRepo", "baseBranch"], `${path}.handoff`, issues);
   }
-  const handoffValue = handoff ? validateManifestHandoff(handoff, `${path}.handoff`, issues) : undefined;
+  const handoffValue = handoff ? validateManifestHandoff(handoff, `${path}.handoff`, issues, expectedTargetRepo) : undefined;
   const taskValues = tasks?.map((task, index) => validateManifestTask(task, `${path}.tasks[${index}]`, issues));
   if (handoffValue !== undefined && taskValues !== undefined && taskValues.every(isDefined)) {
     return { handoff: handoffValue, tasks: taskValues };
@@ -244,11 +269,11 @@ function validateManifest(value: unknown, path: string, issues: ValidationIssue[
   return undefined;
 }
 
-function validateManifestHandoff(value: Record<string, unknown>, path: string, issues: ValidationIssue[]): ManifestHandoff | undefined {
+function validateManifestHandoff(value: Record<string, unknown>, path: string, issues: ValidationIssue[], expectedTargetRepo: string): ManifestHandoff | undefined {
   const id = requiredString(value, "id", path, issues);
   const source = requiredRelativePath(value, "source", path, issues);
   const board = requiredRelativePath(value, "board", path, issues);
-  const targetRepo = requiredAbsolutePath(value, "targetRepo", path, issues);
+  const targetRepo = requiredExpectedTarget(value, "targetRepo", expectedTargetRepo, path, issues);
   const baseBranch = requiredString(value, "baseBranch", path, issues);
   if (id !== undefined && source !== undefined && board !== undefined && targetRepo !== undefined && baseBranch !== undefined) {
     return { id, source, board, targetRepo, baseBranch };
@@ -267,7 +292,7 @@ function validateManifestTask(value: unknown, path: string, issues: ValidationIs
   const dependsOn = requiredStringArray(value, "dependsOn", path, issues);
   const parallel = requiredEnum(value, "parallel", PARALLEL_POLICIES, path, issues);
   const humanGate = requiredBoolean(value, "humanGate", path, issues);
-  const allowedPaths = requiredStringArray(value, "allowedPaths", path, issues);
+  const allowedPaths = requiredRepoRelativeGlobArray(value, "allowedPaths", path, issues);
   const test = requiredString(value, "test", path, issues);
   if (id !== undefined && title !== undefined && dependsOn !== undefined && parallel !== undefined && humanGate !== undefined && allowedPaths !== undefined && test !== undefined) {
     return { id, title, dependsOn, parallel, humanGate, allowedPaths, test };
@@ -358,8 +383,35 @@ function requiredString(value: Record<string, unknown>, key: string, path: strin
 
 function requiredAbsolutePath(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): string | undefined {
   const candidate = requiredString(value, key, path, issues);
-  if (candidate !== undefined && !candidate.startsWith("/")) {
+  if (candidate !== undefined && !isAbsolute(candidate)) {
     issues.push(issue(`${path}.${key}`, "must be an absolute path"));
+    return undefined;
+  }
+  return candidate;
+}
+
+function requiredPilotTarget(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): string | undefined {
+  const candidate = requiredAbsolutePath(value, key, path, issues);
+  if (candidate !== undefined && candidate !== PILOT_TARGET_REPO) {
+    issues.push(issue(`${path}.${key}`, `must equal the v1 pilot target ${PILOT_TARGET_REPO}`));
+    return undefined;
+  }
+  return candidate;
+}
+
+function requiredExpectedTarget(value: Record<string, unknown>, key: string, expected: string, path: string, issues: ValidationIssue[]): string | undefined {
+  const candidate = requiredAbsolutePath(value, key, path, issues);
+  if (candidate !== undefined && candidate !== expected) {
+    issues.push(issue(`${path}.${key}`, `must match the configured pilot target ${expected}`));
+    return undefined;
+  }
+  return candidate;
+}
+
+function requiredAbsolutePathOutside(value: Record<string, unknown>, key: string, targetRepo: string, path: string, issues: ValidationIssue[]): string | undefined {
+  const candidate = requiredAbsolutePath(value, key, path, issues);
+  if (candidate !== undefined && isWithinPath(candidate, targetRepo)) {
+    issues.push(issue(`${path}.${key}`, "must be outside the pilot target repository"));
     return undefined;
   }
   return candidate;
@@ -459,6 +511,37 @@ function requiredStringArray(value: Record<string, unknown>, key: string, path: 
     }
   }
   return strings.length === candidates.length ? strings : undefined;
+}
+
+function requiredRepoRelativeGlobArray(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): readonly string[] | undefined {
+  const candidates = requiredArray(value, key, path, issues);
+  if (candidates === undefined) return undefined;
+  const globs: string[] = [];
+  for (const [index, candidate] of candidates.entries()) {
+    if (typeof candidate !== "string" || candidate.trim() === "") {
+      issues.push(issue(`${path}.${key}[${index}]`, "must be a non-empty repository-relative glob"));
+    } else if (!isRepoRelativeGlob(candidate)) {
+      issues.push(issue(`${path}.${key}[${index}]`, "must be a repository-relative glob that cannot escape the repository"));
+    } else {
+      globs.push(candidate);
+    }
+  }
+  return globs.length === candidates.length ? globs : undefined;
+}
+
+function isRepoRelativeGlob(candidate: string): boolean {
+  if (candidate.includes("\0") || candidate.includes("\\") || candidate.startsWith("/") || /^[A-Za-z]:/.test(candidate)) return false;
+  const segments = candidate.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;
+  const normalized = resolve("/repo", candidate);
+  return normalized === "/repo" || normalized.startsWith("/repo/");
+}
+
+function isWithinPath(candidate: string, parent: string): boolean {
+  const candidatePath = resolve(candidate);
+  const parentPath = resolve(parent);
+  const pathFromParent = relative(parentPath, candidatePath);
+  return pathFromParent === "" || (!pathFromParent.startsWith("..") && !isAbsolute(pathFromParent));
 }
 
 function issuesForPath(issues: readonly ValidationIssue[], path: string): boolean {
