@@ -35,3 +35,13 @@ test("uses gh-compatible parent, blocking, idempotence, and state-preserving cal
   assert.ok(fake.calls.some((call) => call.includes("--add-blocked-by")));
   assert.ok(fake.calls.some((call) => call.includes("--remove-label") && call.join(" ").includes("ao:state:ready,ao:state:running")));
 });
+
+test("reads parent/blocking fields and pins the gh repository", async () => {
+  const client = new (await import("../src/github/index.js")).CliGhClient(async (_command, args) => {
+    assert.ok(args.includes("--repo"));
+    return { stdout: JSON.stringify([{ number: 4, title: "x", body: TASK_MARKER("AO-05"), state: "OPEN", labels: [{ name: "ao:state:running" }], parent: { number: 2 }, blockedBy: [{ number: 3 }] }]), stderr: "", code: 0 };
+  });
+  const snapshot = await new GitHubIssueProjector(client).readOpen();
+  assert.equal(snapshot[0]?.parentNumber, 2);
+  assert.deepEqual(snapshot[0]?.blockedBy, [3]);
+});

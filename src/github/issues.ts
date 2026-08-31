@@ -1,5 +1,5 @@
 import { CommandResult, CommandRunner, defaultCommandRunner } from "../git/index.js";
-import { ManifestTask, TaskManifest, EXECUTION_STATES, ExecutionState } from "../config/index.js";
+import { ManifestTask, TaskManifest, EXECUTION_STATES, ExecutionState, PILOT_TARGET_REPO } from "../config/index.js";
 
 export interface IssueSnapshot {
   readonly number: number;
@@ -21,8 +21,8 @@ export class GhCommandError extends Error {
 }
 
 export class CliGhClient implements GhClient {
-  constructor(private readonly runCommand: CommandRunner = defaultCommandRunner) {}
-  run(args: readonly string[]): Promise<CommandResult> { return this.runCommand("gh", args); }
+  constructor(private readonly runCommand: CommandRunner = defaultCommandRunner, private readonly repo = PILOT_TARGET_REPO) {}
+  run(args: readonly string[]): Promise<CommandResult> { return this.runCommand("gh", [...args, "--repo", this.repo]); }
 }
 
 export const STATE_LABEL = (state: ExecutionState): string => `ao:state:${state}`;
@@ -40,16 +40,16 @@ export class GitHubIssueProjector {
       const issue = found ?? await this.createIssue(task.title, this.taskBody(manifest, task, parent.number), parent.number, undefined);
       if (found === null) await this.setState(issue.number, "ready");
       if (found !== null && issue.parentNumber !== parent.number) await this.setParent(issue.number, parent.number);
-      tasks.set(task.id, { ...issue, labels: found === null ? [STATE_LABEL("ready")] : issue.labels, parentNumber: parent.number, blockedBy: [] });
+      tasks.set(task.id, { ...issue, labels: found === null ? [STATE_LABEL("ready")] : issue.labels, parentNumber: parent.number });
     }
     for (const task of manifest.tasks) {
       const issue = tasks.get(task.id);
       if (issue === undefined) continue;
       const dependencyNumbers = task.dependsOn.map((dependency) => tasks.get(dependency)?.number).filter((number): number is number => number !== undefined);
-      if (dependencyNumbers.length > 0) {
-        await this.addBlockedBy(issue.number, dependencyNumbers);
-        tasks.set(task.id, { ...issue, blockedBy: dependencyNumbers });
-      }
+      const current = new Set(issue.blockedBy);
+      for (const old of current) if (!dependencyNumbers.includes(old)) await this.removeBlockedBy(issue.number, old);
+      await this.addBlockedBy(issue.number, dependencyNumbers.filter((number) => !current.has(number)));
+      tasks.set(task.id, { ...issue, blockedBy: dependencyNumbers });
     }
     return { parent, tasks };
   }
@@ -76,13 +76,18 @@ export class GitHubIssueProjector {
     }
   }
 
+  async removeBlockedBy(issueNumber: number, dependencyNumber: number): Promise<void> {
+    const result = await this.client.run(["issue", "edit", String(issueNumber), "--remove-blocked-by", String(dependencyNumber)]);
+    if (result.code !== 0) throw new GhCommandError(["issue", "edit"], result);
+  }
+
   private async setParent(issueNumber: number, parentNumber: number): Promise<void> {
     const result = await this.client.run(["issue", "edit", String(issueNumber), "--parent", String(parentNumber)]);
     if (result.code !== 0) throw new GhCommandError(["issue", "edit"], result);
   }
 
   async readOpen(): Promise<readonly IssueSnapshot[]> {
-    const result = await this.client.run(["issue", "list", "--state", "all", "--json", "number,title,body,state,labels"]);
+    const result = await this.client.run(["issue", "list", "--state", "all", "--json", "number,title,body,state,labels,parent,blockedBy"]);
     if (result.code !== 0) throw new GhCommandError(["issue", "list"], result);
     const parsed = JSON.parse(result.stdout) as unknown;
     if (!Array.isArray(parsed)) throw new Error("gh issue list returned a non-array");
@@ -117,6 +122,8 @@ function parseCreatedIssue(output: string, title: string, body: string): IssueSn
 function parseIssue(value: unknown): IssueSnapshot {
   if (!isRecord(value) || typeof value.number !== "number" || typeof value.title !== "string" || typeof value.body !== "string" || (value.state !== "OPEN" && value.state !== "CLOSED")) throw new Error("invalid GitHub issue snapshot");
   const labels = Array.isArray(value.labels) ? value.labels.map((label) => typeof label === "string" ? label : isRecord(label) && typeof label.name === "string" ? label.name : null).filter((label): label is string => label !== null) : [];
-  return { number: value.number, title: value.title, body: value.body, state: value.state, labels, parentNumber: null, blockedBy: [] };
+  const parentNumber = isRecord(value.parent) && typeof value.parent.number === "number" ? value.parent.number : typeof value.parent === "number" ? value.parent : null;
+  const blockedBy = Array.isArray(value.blockedBy) ? value.blockedBy.map((item) => typeof item === "number" ? item : isRecord(item) && typeof item.number === "number" ? item.number : null).filter((item): item is number => item !== null) : [];
+  return { number: value.number, title: value.title, body: value.body, state: value.state, labels, parentNumber, blockedBy };
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null; }
