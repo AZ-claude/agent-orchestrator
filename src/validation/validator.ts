@@ -45,12 +45,12 @@ export class MachineValidator {
   constructor(private readonly git: GitAdapter = new GitAdapter()) {}
 
   async validate(task: ManifestTask, options: ValidationOptions): Promise<ReviewPacket> {
-    const snapshot = await this.git.snapshot(options.worktree, options.baseRef);
-    const scope = await this.git.scopeCheck(options.worktree, options.baseRef, task.allowedPaths);
-    const pushed = await this.git.remoteContains(options.repo, snapshot.head, options.remoteBranch);
+    const snapshot = await safe(() => this.git.snapshot(options.worktree, options.baseRef), { branch: "", head: "", clean: false, changedFiles: [] });
+    const scope = await safe(() => this.git.scopeCheck(options.worktree, options.baseRef, task.allowedPaths), { pass: false, unexpected: [] });
+    const pushed = snapshot.head === "" ? false : await safe(() => this.git.remoteContains(options.repo, snapshot.head, options.remoteBranch), false);
     const branchPass = snapshot.branch === (options.expectedBranch ?? `agent/${task.id}`);
     const worktreePass = options.expectedWorktree === undefined || options.worktree === options.expectedWorktree;
-    const baseAncestor = await this.git.isAncestor(options.baseRef, snapshot.head, options.repo);
+    const baseAncestor = snapshot.head === "" ? false : await safe(() => this.git.isAncestor(options.baseRef, snapshot.head, options.repo), false);
     const test = await runTest(task.test, options.worktree);
     return {
       taskId: task.id,
@@ -76,6 +76,14 @@ export class MachineValidator {
 
   isPass(packet: ReviewPacket): boolean {
     return packet.pushed && packet.clean && packet.scope === "PASS" && packet.test.pass && packet.dependencies === "PASS" && packet.branchCheck === "PASS" && packet.worktreeCheck === "PASS" && packet.baseAncestor === "PASS";
+  }
+}
+
+async function safe<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await operation();
+  } catch {
+    return fallback;
   }
 }
 

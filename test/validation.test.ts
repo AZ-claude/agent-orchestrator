@@ -17,6 +17,13 @@ class FakeGit extends GitAdapter {
   override async isAncestor(): Promise<boolean> { return this.ancestor; }
 }
 
+class BrokenGit extends GitAdapter {
+  override async snapshot(): Promise<GitSnapshot> { throw new Error("repository unavailable"); }
+  override async scopeCheck(): Promise<{ pass: boolean; unexpected: readonly string[] }> { throw new Error("repository unavailable"); }
+  override async remoteContains(): Promise<boolean> { throw new Error("remote unavailable"); }
+  override async isAncestor(): Promise<boolean> { throw new Error("repository unavailable"); }
+}
+
 const validationTask: ManifestTask = { id: "AO-08", title: "validation", dependsOn: [], parallel: "SAFE", humanGate: false, allowedPaths: ["src/validation/**"], test: "true" };
 
 test("machine validator records branch/worktree/base evidence and fail-closes", async () => {
@@ -34,4 +41,14 @@ test("review packet is compact and exposes machine evidence", () => {
   assert.match(text, /Scope check: PASS/);
   assert.doesNotMatch(text, /token|secret/i);
   assert.match(text, /Previous rework: fix test/);
+});
+
+test("converts Git failures into a fail-closed packet", async () => {
+  const packet = await new MachineValidator(new BrokenGit()).validate(validationTask, { worktree: "/tmp", repo: "/tmp/repo", baseRef: "origin/main", remoteBranch: "agent/AO-08", dependenciesPass: true, expectedBranch: "agent/AO-08" });
+  assert.equal(packet.pushed, false);
+  assert.equal(packet.clean, false);
+  assert.equal(packet.scope, "FAIL");
+  assert.equal(packet.branchCheck, "FAIL");
+  assert.equal(packet.baseAncestor, "FAIL");
+  assert.equal(new MachineValidator(new BrokenGit()).isPass(packet), false);
 });
