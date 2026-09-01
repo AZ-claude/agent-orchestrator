@@ -30,6 +30,11 @@ install a LaunchAgent as part of normal daemon startup.
 
 AO-16 packaging is in `packaging/launchd`. The template is rendered with
 operator-supplied absolute paths and validated with `plutil` before loading.
+`src/cli/cli.ts` currently provides the command dispatcher as a library; it is
+not by itself an executable daemon entrypoint. `AO_LAUNCHD_CLI` must therefore
+point to an existing operator-provided wrapper that wires concrete
+`CliOperations` and invokes `runCli`, or to a separately packaged executable.
+Do not point LaunchAgent at `dist/src/cli/cli.js` without that wrapper.
 The following commands are explicit host mutations and must be run by an
 operator on the intended macOS host; they are never called by the daemon:
 

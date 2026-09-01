@@ -3,7 +3,7 @@
 更新: 2026-08-31 JST
 要件正本: [HANDOFF_2026-08-31_AGENT_ORCHESTRATOR_V1_REQUIREMENTS.md](./HANDOFF_2026-08-31_AGENT_ORCHESTRATOR_V1_REQUIREMENTS.md)
 pilot: `AZ-claude/slot`
-状態: **DESIGNED — 実装未開始**
+状態: **IMPLEMENTED — pilot boundary verified; AO-16 real-host install remains a Human Gate**
 
 ## 1. 結論と境界
 

@@ -6,9 +6,18 @@ Terra final acceptance: **PASS in the disposable fixture boundary**, using the
 schema-valid Terra APPROVE path and remote-base verification in
 `test/terra.test.ts`, `test/controller.test.ts`, and the AO-14 pilot.
 
-All requested AO-01 through AO-15 tasks are marked `DONE` after
-dependency-ordered implementation, machine validation, and independent review.
-AO-16 is outside the requested range and remains planned.
+At the time of this AO-15 acceptance (2026-08-31), all requested AO-01 through
+AO-15 tasks were marked `DONE` after dependency-ordered implementation,
+machine validation, and independent review. AO-16 was outside that requested
+range and remained planned at that time.
+
+## Current follow-up status (2026-09-01)
+
+AO-16 package implementation and non-destructive verification were completed
+after this AO-15 acceptance. It is tracked separately in
+[`ao-16-launchd.md`](./ao-16-launchd.md). The real-host LaunchAgent install has
+not been performed and remains an explicit operator Human Gate. This document's
+AO-01 through AO-15 acceptance result is unchanged.
 
 | # | Acceptance | Durable evidence |
 |---:|---|---|
@@ -34,14 +43,17 @@ AO-16 is outside the requested range and remains planned.
 ## Verification
 
 `npm run build`, `npm run lint`, and the complete test command pass. Selector
-commands for AO-01 through AO-15 are also run by the task-specific tests.
+commands for AO-01 through AO-15 are also run by the task-specific tests. AO-16
+package verification passes separately with the LaunchAgent test selector.
 
 ## Known constraints
 
 This is a pilot-only local daemon design. It does not implement multi-repo
 orchestration, GitHub Projects, a dashboard, production DB/Scheduler mutation,
-daemon merge, or LaunchAgent installation. Terra remains the merge authority;
-the daemon only verifies remote-base ancestry and closes an approved Issue.
+daemon merge, or real-host LaunchAgent installation. LaunchAgent packaging and
+disposable install lifecycle verification exist, but host registration remains
+operator-only. Terra remains the merge authority; the daemon only verifies
+remote-base ancestry and closes an approved Issue.
 
 AO-14 uses disposable fixtures only. No live `/slot` experiment is implied by
 this final acceptance.
@@ -51,4 +63,6 @@ this final acceptance.
 Each requested task received an independent read-only review. Findings were
 repaired and the affected task was reviewed again until APPROVE: AO-01 through
 AO-14 are APPROVED. AO-15 is this final review of the durable evidence and
-complete pilot boundary.
+complete pilot boundary. AO-16 was added afterward; its package-level test
+evidence is recorded separately, and this historical AO-15 record does not
+claim an AO-16 independent-review result.

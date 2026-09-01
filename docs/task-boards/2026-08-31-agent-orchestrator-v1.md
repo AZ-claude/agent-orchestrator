@@ -1,10 +1,10 @@
 # Agent Orchestrator v1 実装タスクボード
 
-更新: 2026-08-31 JST
+更新: 2026-09-01 JST
 要件: [v1 requirements handoff](../HANDOFF_2026-08-31_AGENT_ORCHESTRATOR_V1_REQUIREMENTS.md)
 詳細設計: [v1 detailed design](../DESIGN_2026-08-31_AGENT_ORCHESTRATOR_V1.md)
 機械正本: [`tasks/agent-orchestrator-v1.yaml`](../../tasks/agent-orchestrator-v1.yaml)
-状態: **DONE — AO-01〜AO-15 完了**
+状態: **AO-01〜AO-15 DONE — AO-16 実装・非破壊検証済み / 実ホスト適用はHuman Gate待ち**
 
 ## 0. 境界と前提
 
@@ -61,7 +61,7 @@ reviewer subagent の標準 prompt は implementation Luna が `workerCompletion
 | AO-13 | daemon CLI/logging/operational runbook | DONE | AO-09, AO-11, AO-12 | EXCLUSIVE | bootstrap/run-once/daemon/reconcile/status の CLI と privacy-safe log、operator runbook、failure diagnosis がある。web dashboard は作らない。 |
 | AO-14 | `/slot` non-production pilot acceptance | DONE | AO-13 | EXCLUSIVE | two SAFE tasks、EXCLUSIVE task、review/rework、restart/rate-limit fixture scenario を実証し、結果を Git に残す。production DB/Scheduler は触らない。 |
 | AO-15 | final acceptance と durable evidence | DONE | AO-14 | EXCLUSIVE | v1 acceptance 1–18 の evidence matrix と既知制約を記録し、Terra final acceptance を実施する。 |
-| AO-16 | launchd packaging/install verification | DONE | AO-13 | EXCLUSIVE | LaunchAgent template/install/uninstall/status runbook と non-destructive verification を作る。実 host install は operator が明示実行する。 |
+| AO-16 | launchd packaging/install verification | IMPLEMENTATION VERIFIED / HUMAN GATE PENDING | AO-13 | EXCLUSIVE | LaunchAgent template/install/uninstall/status runbook と non-destructive verification を作る。実 host install は operator が明示実行する。 |
 
 ## 3. 実装順の運用
 
@@ -69,7 +69,7 @@ reviewer subagent の標準 prompt は implementation Luna が `workerCompletion
 2. AO-04〜08 は fake external command/disposable repo を用いて並列に実装・reviewできる。
 3. AO-09〜13 で controller を統合する。AO-09/11/13 は state transition を触るため EXCLUSIVE とする。
 4. AO-14 は `/slot` main の稼働中作業と切り離した worktree、read-only/disposable task のみで行う。
-5. AO-15 が要件全体の final acceptance、AO-16 が OS 常駐の独立した packaging task である。どちらも daemon 自身による OS/production mutationは行わない。
+5. AO-15 が要件全体の final acceptance、AO-16 が OS 常駐の独立した packaging task である。AO-16 の package-level verification は完了しているが、実 host への登録・有効化は Human Gate として未実施である。どちらも daemon 自身による OS/production mutationは行わない。
 
 ## 4. 共通 acceptance
 
