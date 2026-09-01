@@ -25,3 +25,25 @@ or invoke an LLM while polling, scheduling, validation, or recovery runs.
 
 Do not run production experiments from the pilot acceptance fixture. Do not
 install a LaunchAgent as part of normal daemon startup.
+
+## LaunchAgent (operator-only)
+
+AO-16 packaging is in `packaging/launchd`. The template is rendered with
+operator-supplied absolute paths and validated with `plutil` before loading.
+The following commands are explicit host mutations and must be run by an
+operator on the intended macOS host; they are never called by the daemon:
+
+```sh
+export AO_LAUNCHD_WORKDIR=/absolute/path/to/agent-orchestrator
+export AO_LAUNCHD_CLI=/absolute/path/to/agent-orchestrator-cli.mjs
+export AO_LAUNCHD_NODE=/absolute/path/to/node
+packaging/launchd/manage.sh install
+packaging/launchd/manage.sh status
+packaging/launchd/manage.sh uninstall
+```
+
+Before any mutation, run `packaging/launchd/manage.sh verify`. It only checks
+the checked-in plist template and does not call `launchctl`, create files, or
+change the host. `install` uses the per-user `gui/<uid>` domain and
+`Library/LaunchAgents`; `uninstall` boots out the label and removes only the
+generated plist. Use `status` to inspect the loaded label without changing it.
