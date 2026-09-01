@@ -61,7 +61,7 @@ reviewer subagent の標準 prompt は implementation Luna が `workerCompletion
 | AO-13 | daemon CLI/logging/operational runbook | DONE | AO-09, AO-11, AO-12 | EXCLUSIVE | bootstrap/run-once/daemon/reconcile/status の CLI と privacy-safe log、operator runbook、failure diagnosis がある。web dashboard は作らない。 |
 | AO-14 | `/slot` non-production pilot acceptance | DONE | AO-13 | EXCLUSIVE | two SAFE tasks、EXCLUSIVE task、review/rework、restart/rate-limit fixture scenario を実証し、結果を Git に残す。production DB/Scheduler は触らない。 |
 | AO-15 | final acceptance と durable evidence | DONE | AO-14 | EXCLUSIVE | v1 acceptance 1–18 の evidence matrix と既知制約を記録し、Terra final acceptance を実施する。 |
-| AO-16 | launchd packaging/install verification | PLANNED | AO-13 | EXCLUSIVE | LaunchAgent template/install/uninstall/status runbook と non-destructive verification を作る。実 host install は operator が明示実行する。 |
+| AO-16 | launchd packaging/install verification | DONE | AO-13 | EXCLUSIVE | LaunchAgent template/install/uninstall/status runbook と non-destructive verification を作る。実 host install は operator が明示実行する。 |
 
 ## 3. 実装順の運用
 
