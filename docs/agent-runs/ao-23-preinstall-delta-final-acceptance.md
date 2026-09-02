@@ -39,11 +39,14 @@ git diff --check
 `manage.sh verify` validates only the checked-in template. It does not invoke
 `launchctl`, create a LaunchAgent plist, or alter the host.
 
-## Remaining human action
+## Superseded release-readiness finding
 
-The repository is ready for the existing operator-only AO-16 procedure in the
-[operator runbook](../runbooks/agent-orchestrator.md#launchagent-operator-only).
-Before the intentionally state-changing install command, the operator must
-provide valid absolute paths for the repository workdir, a concrete CLI
-entrypoint wrapper that wires `CliOperations`, and Node. Installation itself
-is not part of this acceptance and was not performed.
+This acceptance is valid for the completed AO-17–AO-23 delta code. A later
+read-only install-readiness investigation found no repository-owned or
+existing external executable wrapper in the expected project/config locations;
+the LaunchAgent is also not loaded. The old runbook required an
+operator-provided `CliOperations` wrapper, so real-host installation is not
+yet the sole remaining action. AO-24 through AO-26 were added to produce and
+verify a repository-owned entrypoint before refreshing final acceptance.
+
+No installation was performed.

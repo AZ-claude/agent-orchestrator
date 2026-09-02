@@ -106,3 +106,39 @@ tasks:
     test: npm test -- final-acceptance && npm test && npm run build && npm run lint
     assumptions: [AO-22 is merged with durable evidence and no unresolved Human Gate.]
     invariants: [Final acceptance is whole-product only and never direct code repair; real-host install remains excluded.]
+  - id: AO-24
+    title: Executable daemon composition and LaunchAgent CLI entrypoint
+    state: READY
+    dependsOn: [AO-23]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [bin/**, src/cli/**, src/config/**, src/checkpoint/**, src/controller/**, src/github/**, src/git/**, src/luna/**, src/manifest/**, src/reconcile/**, src/scheduler/**, src/validation/**, package.json, test/cli.test.ts, test/entrypoint.test.ts, docs/runbooks/agent-orchestrator.md]
+    nonScope: [LaunchAgent registration/loading, live slot mutation, production Scheduler/deploy/database, provider router, dashboard/UI, external operator scripts]
+    completion: Repository-owned built entrypoint provides fail-closed concrete CliOperations and is the only documented AO_LAUNCHD_CLI value.
+    test: npm test -- cli entrypoint && npm run build && npm run lint && packaging/launchd/manage.sh verify
+    assumptions: [Completed typed components compose without authority change, runtime paths resolve without embedded secrets.]
+    invariants: [No semantic daemon judgment, no launchctl/install, no arbitrary external wrapper fallback, single slot pilot only.]
+  - id: AO-25
+    title: Operator install-readiness preflight and durable evidence
+    state: PLANNED
+    dependsOn: [AO-24]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [packaging/launchd/**, docs/runbooks/agent-orchestrator.md, docs/agent-runs/**, test/launchd/**, test/entrypoint.test.ts]
+    nonScope: [launchctl bootstrap, actual plist creation, live Issue daemon execution, production mutation, host install]
+    completion: Read-only preflight validates the built owned entrypoint and absolute paths before install; runbook supplies operator-only install/rollback sequence.
+    test: npm test -- launchd entrypoint && npm run build && npm run lint && packaging/launchd/manage.sh verify
+    assumptions: [AO-24 has stable built entrypoint path.]
+    invariants: [Preflight is non-mutating and cannot invoke launchctl, create plist, or make network/API mutation.]
+  - id: AO-26
+    title: Final Terra Acceptance refresh after executable-entrypoint readiness
+    state: PLANNED
+    dependsOn: [AO-25]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [docs/agent-runs/**, docs/task-boards/**, tasks/agent-orchestrator-preinstall-delta.yaml, test/final-acceptance.test.ts]
+    nonScope: [code fixes, host install, plan changes except corrective follow-up task creation]
+    completion: Terra records refreshed whole-product PASS, corrective-task REWORK, or REQUIREMENT_CONFLICT; only PASS leaves human install as sole action.
+    test: npm test -- final-acceptance && npm test && npm run build && npm run lint && packaging/launchd/manage.sh verify
+    assumptions: [AO-24 and AO-25 are independently reviewed and merged.]
+    invariants: [Terra does not directly repair code and host install remains Human-controlled.]

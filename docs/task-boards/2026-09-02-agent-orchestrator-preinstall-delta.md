@@ -5,7 +5,7 @@ Canonical requirements: [pre-install delta HANDOFF](../HANDOFF_2026-09-02_AGENT_
 Legacy boundary: [v1 requirements](../HANDOFF_2026-08-31_AGENT_ORCHESTRATOR_V1_REQUIREMENTS.md), [v1 design](../DESIGN_2026-08-31_AGENT_ORCHESTRATOR_V1.md)  
 Machine-readable plan: [`tasks/agent-orchestrator-preinstall-delta.yaml`](../../tasks/agent-orchestrator-preinstall-delta.yaml)
 
-Status: **DONE — AO-17 through AO-23 are implemented, independently reviewed, and Final Terra Acceptance has passed. The only remaining action is the existing AO-16 operator Human Gate: real-host LaunchAgent installation.**
+Status: **AO-17 through AO-23 DONE; AO-24 through AO-26 PLANNED — an executable CLI wrapper was not found during install-readiness investigation. Real-host installation remains blocked on these implementation/final-acceptance tasks, then stays an AO-16 operator Human Gate.**
 
 ## 0. Authority, boundary, and common acceptance
 
@@ -24,9 +24,11 @@ Status: **DONE — AO-17 through AO-23 are implemented, independently reviewed, 
 AO-17 (contract/schema) ─┬─ AO-19 (review/rework/recovery) ─┬─ AO-20 (plan-conflict/barrier/reconcile) ─ AO-21 (runtime integration) ─ AO-22 (pilot evidence) ─ AO-23 (Final Terra Acceptance)
                          │                                  │
 AO-18 (deterministic merge gates) ───────────────────────────┘
+
+AO-23 ─ AO-24 (executable daemon composition) ─ AO-25 (install-readiness preflight) ─ AO-26 (Final Terra Acceptance refresh)
 ```
 
-`AO-17` and `AO-18` are initially READY and SAFE. They have disjoint allowed paths. AO-20 and AO-21 are EXCLUSIVE because they change cross-component execution-state behavior.
+`AO-17` and `AO-18` were the initial READY/SAFE pair. AO-24 is now the only READY task. AO-20, AO-21, AO-24, AO-25, and AO-26 are EXCLUSIVE because they change cross-component execution-state or release-readiness behavior.
 
 ## 2. Delta tasks
 
@@ -100,6 +102,36 @@ AO-18 (deterministic merge gates) ───────────────�
 - Assumptions: AO-22 is merged with durable evidence and no unresolved Human Gate.
 - Invariants: Final Terra Acceptance is whole-product only, never a substitute for per-task semantic review or direct code repair; real-host install remains out of scope.
 
+### AO-24 — Executable daemon composition and LaunchAgent CLI entrypoint
+
+- State: PLANNED; dependencies: AO-23; parallel: EXCLUSIVE; Human Gate: none.
+- Scope / allowed paths: `bin/**`, `src/cli/**`, `src/config/**`, `src/checkpoint/**`, `src/controller/**`, `src/github/**`, `src/git/**`, `src/luna/**`, `src/manifest/**`, `src/reconcile/**`, `src/scheduler/**`, `src/validation/**`, `package.json`, `test/cli.test.ts`, `test/entrypoint.test.ts`, `docs/runbooks/agent-orchestrator.md`.
+- Non-scope: LaunchAgent registration/loading, live `/slot` mutations, production Scheduler/deploy/database changes, provider router/Qwen integration, dashboard/UI, arbitrary operator scripts outside this repository.
+- Completion / acceptance: ships one repository-owned executable entrypoint that supplies concrete, fail-closed `CliOperations` for `bootstrap`, `run-once`, `daemon`, `reconcile`, and `status`; reads only the canonical delta manifest/config; performs no work at module import; propagates failures with non-zero exit; is runnable from `node` after `npm run build`; and is the only documented value for `AO_LAUNCHD_CLI`.
+- Verification: integration tests run the built entrypoint against fake `gh`/`git`/`codex` boundaries and prove command routing, no import side effect, fail-closed missing configuration, daemon polling without LLM invocation, and zero host mutation; then `npm test`, `npm run build`, `npm run lint`, and `packaging/launchd/manage.sh verify`.
+- Assumptions: AO-17–AO-23's typed components can be composed without changing their authority boundaries; operator-supplied paths may be resolved at execution time without embedding secrets.
+- Invariants: entrypoint contains no semantic decision, never calls `launchctl`, does not install itself, never falls back to an arbitrary external wrapper, and preserves the single `/slot` pilot boundary.
+
+### AO-25 — Operator install-readiness preflight and durable evidence
+
+- State: PLANNED; dependencies: AO-24; parallel: EXCLUSIVE; Human Gate: none.
+- Scope / allowed paths: `packaging/launchd/**`, `docs/runbooks/agent-orchestrator.md`, `docs/agent-runs/**`, `test/launchd/**`, `test/entrypoint.test.ts`.
+- Non-scope: `launchctl bootstrap`, generated plist creation in the actual user Library, daemon execution against a live Issue, production mutation, or real-host installation.
+- Completion / acceptance: `manage.sh verify` plus a new read-only preflight confirms the built repository-owned entrypoint exists, is executable via the configured Node binary, accepts the requested command shape, and supplies all required absolute paths before any install action; runbook contains a copyable operator-only install sequence using that entrypoint and rollback/status commands.
+- Verification: disposable HOME/fake launchctl tests prove preflight is non-mutating and rejects missing/bad inputs; full `npm test`, build, lint, and template verification PASS.
+- Assumptions: AO-24 publishes a stable built entrypoint path relative to the repository.
+- Invariants: preflight is read-only; it cannot invoke `launchctl`, create a plist, or make a network/API mutation; install remains a separate human action.
+
+### AO-26 — Final Terra Acceptance refresh after executable-entrypoint readiness
+
+- State: PLANNED; dependencies: AO-25; parallel: EXCLUSIVE; Human Gate: none unless result is `REQUIREMENT_CONFLICT`.
+- Scope / allowed paths: `docs/agent-runs/**`, `docs/task-boards/**`, `tasks/agent-orchestrator-preinstall-delta.yaml`, `test/final-acceptance.test.ts`.
+- Non-scope: code fixes, host install, plan changes except creation of corrective follow-up tasks after a Terra `REWORK`.
+- Completion / acceptance: Terra rechecks the whole canonical delta including the repository-owned entrypoint and read-only install preflight; records PASS, scoped corrective-task REWORK, or REQUIREMENT_CONFLICT. Only PASS permits the AO-16 human install step to be described as the sole remaining action.
+- Verification: full `npm test`, build, lint, `packaging/launchd/manage.sh verify`, documented read-only preflight, and durable acceptance matrix.
+- Assumptions: AO-24/AO-25 are independently reviewed and merged with durable evidence.
+- Invariants: Terra does not directly repair code; host install remains unexecuted and Human-controlled.
+
 ## 3. Consistency audit (Planning Terra, 2026-09-02)
 
 | Audit | Result |
@@ -115,4 +147,4 @@ AO-18 (deterministic merge gates) ───────────────�
 
 ## 4. Human Gate and install status
 
-Final Terra Acceptance is recorded in [AO-23 evidence](../agent-runs/ao-23-preinstall-delta-final-acceptance.md). The only predeclared operation gate remains AO-16's real-host LaunchAgent registration/enabling. The three runtime Human Gate categories are exactly those in the canonical delta HANDOFF. No planning, implementation, pilot, review, or final-acceptance task called `launchctl`, `packaging/launchd/manage.sh install`, or any host-install command.
+AO-23 is recorded in [its historical evidence](../agent-runs/ao-23-preinstall-delta-final-acceptance.md), but its release-readiness conclusion is superseded by the missing-wrapper finding. AO-26 will refresh Final Terra Acceptance after AO-24/AO-25. The only predeclared operation gate remains AO-16's real-host LaunchAgent registration/enabling. The three runtime Human Gate categories are exactly those in the canonical delta HANDOFF. No planning, implementation, pilot, review, or final-acceptance task called `launchctl`, `packaging/launchd/manage.sh install`, or any host-install command.
