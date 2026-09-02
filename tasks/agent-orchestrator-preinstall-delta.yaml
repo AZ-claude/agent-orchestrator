@@ -1,0 +1,97 @@
+handoff:
+  id: agent-orchestrator-preinstall-delta
+  source: docs/HANDOFF_2026-09-02_AGENT_ORCHESTRATOR_PREINSTALL_DELTA.md
+  board: docs/task-boards/2026-09-02-agent-orchestrator-preinstall-delta.md
+  targetRepo: /Users/eita/projects/slot
+  baseBranch: main
+  implementationPromptTemplate: prompts/luna-implementation-task.md
+  legacyManifest: tasks/agent-orchestrator-v1.yaml
+
+# Planning artifact schema. AO-17 makes this projection accepted by the daemon.
+# Only Planning Terra may change fields that carry task-board/DAG meaning.
+planningAuthority: Terra
+tasks:
+  - id: AO-17
+    title: Canonical delta contract, manifest, and durable state
+    state: PLANNED
+    dependsOn: []
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/config/**, src/manifest/**, src/checkpoint/**, prompts/luna-implementation-task.md, test/config.test.ts, test/manifest.test.ts, test/checkpoint.test.ts]
+    nonScope: [controller routing, Git merge commands, scheduler policy, provider router, production state, AO-01-to-AO-16 rewrites]
+    completion: Versioned delta manifest, assumptions/invariants, and durable non-secret lifecycle/review/recovery facts are accepted fail-closed while legacy v1 remains readable.
+    test: npm test -- config manifest checkpoint && npm run build && npm run lint
+    assumptions: [Legacy AO-01-to-AO-16 artifacts remain readable, YAML remains canonical over Markdown.]
+    invariants: [No checkpoint secret or private reasoning, runtime state cannot mutate board meaning, legacy v1 manifest remains backward compatible.]
+  - id: AO-18
+    title: Deterministic reviewed-HEAD merge gates and Git adapter
+    state: PLANNED
+    dependsOn: []
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/git/**, src/validation/**, test/git.test.ts, test/validation.test.ts]
+    nonScope: [reviewer semantic decision, scheduler policy, Issue projection, generic merge queue, non-fixture production branch mutation]
+    completion: Daemon-only auto-merge requires every specified deterministic gate and rejects changed reviewed HEAD.
+    test: npm test -- git validation && npm run build && npm run lint
+    assumptions: [Target repository exposes deterministic base branch and ordinary Git merge operation.]
+    invariants: [No semantic inference, no dirty or unreviewed merge, durable machine-verifiable merge evidence.]
+  - id: AO-19
+    title: Independent Reviewer, bounded Primary REWORK, and fresh Recovery Worker
+    state: PLANNED
+    dependsOn: [AO-17, AO-18]
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/luna/**, src/controller/**, prompts/luna-implementation-task.md, test/luna.test.ts, test/controller.test.ts, test/fixtures/codex/**]
+    nonScope: [provider integration/router, Terra normal review, board/DAG editing, scheduler/barrier implementation, production dispatch]
+    completion: Independent review replaces normal Terra review; Primary has at most three cycles, early STUCK gets one fresh Recovery, and Recovery remains independently reviewed.
+    test: npm test -- luna controller && npm run build && npm run lint
+    assumptions: [Existing Codex lifecycle can create fresh session, reviewer transport remains independent/read-only.]
+    invariants: [No reviewer history/code edit, implementation failure is not automatically PLAN_CONFLICT, Worker/Reviewer do not write board meaning.]
+  - id: AO-20
+    title: Confirmed PLAN_CONFLICT routing, merge barrier, reconciliation, and lifecycle cleanup
+    state: PLANNED
+    dependsOn: [AO-17, AO-19]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/scheduler/**, src/reconcile/**, src/checkpoint/**, src/github/**, test/scheduler.test.ts, test/reconcile.test.ts, test/checkpoint.test.ts, test/github.test.ts]
+    nonScope: [Terra revision content, requirement rewrites, semantic review, advanced impact/lock/queue framework, live external Issue mutation]
+    completion: Only confirmed PLAN_CONFLICT activates barrier; affected downstream pauses, unrelated SAFE work continues, and only retired sessions are cleaned.
+    test: npm test -- scheduler reconcile checkpoint github && npm run build && npm run lint
+    assumptions: [Terra revision produces durable board/manifest update plus explicit resume-or-restart directive.]
+    invariants: [Daemon does not judge claims, no global worker stop, REQUIREMENT_CONFLICT is Human Gate only.]
+  - id: AO-21
+    title: Pre-install runtime integration, authority enforcement, and operator contract
+    state: PLANNED
+    dependsOn: [AO-17, AO-18, AO-19, AO-20]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/cli/**, src/controller/**, src/logging/**, docs/runbooks/agent-orchestrator.md, prompts/luna-implementation-task.md, test/cli.test.ts, test/controller.test.ts]
+    nonScope: [host LaunchAgent install, packaging changes, production/deploy/Scheduler mutation, final acceptance, provider routing, UI]
+    completion: Normal daemon flow has no Terra per-task call; it enforces auto-merge/close/cleanup and authority/Human-Gate contracts without LLM decision calls.
+    test: npm test -- cli controller && npm run build && npm run lint
+    assumptions: [AO-17 through AO-20 expose typed composition interfaces, no host install is needed for wiring tests.]
+    invariants: [Daemon has no semantic judgment, reviewer APPROVE alone cannot merge, LaunchAgent stays operator-only.]
+  - id: AO-22
+    title: Non-production pre-install delta pilot and durable evidence
+    state: PLANNED
+    dependsOn: [AO-17, AO-18, AO-19, AO-20, AO-21]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [scripts/pilot/**, test/pilot.test.ts, docs/agent-runs/**, docs/runbooks/agent-orchestrator.md]
+    nonScope: [production slot runtime/data/Scheduler, LaunchAgent install/load, source behavior changes, public/deploy actions]
+    completion: Disposable fixtures prove every delta acceptance and unchanged v1 pilot safety boundary.
+    test: npm test -- pilot && npm test && npm run build && npm run lint
+    assumptions: [Upstream adapters and artifacts are fakeable.]
+    invariants: [No external host install, production mutation, or live operational slot task.]
+  - id: AO-23
+    title: Final Terra Acceptance of the pre-install delta
+    state: PLANNED
+    dependsOn: [AO-22]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [docs/agent-runs/**, docs/task-boards/**, test/final-acceptance.test.ts]
+    nonScope: [code fixes, daemon operation, manifest/DAG changes except a new corrective task, host install]
+    completion: Terra records whole-product PASS, corrective-task REWORK, or REQUIREMENT_CONFLICT without directly fixing code.
+    test: npm test -- final-acceptance && npm test && npm run build && npm run lint
+    assumptions: [AO-22 is merged with durable evidence and no unresolved Human Gate.]
+    invariants: [Final acceptance is whole-product only and never direct code repair; real-host install remains excluded.]
