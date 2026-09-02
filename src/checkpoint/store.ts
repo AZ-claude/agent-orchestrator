@@ -2,9 +2,9 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile, readdir, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { Checkpoint, checkpointSchema } from "../config/index.js";
+import { Checkpoint, PlanConflictClaim, checkpointSchema, parsePlanConflictClaim } from "../config/index.js";
 
-export const CHECKPOINT_VERSION = 1;
+export const CHECKPOINT_VERSION = 2;
 
 export class CheckpointStore {
   constructor(readonly root: string) {}
@@ -63,13 +63,17 @@ export class CheckpointStore {
     }
   }
 
+  async savePlanConflict(checkpoint: Checkpoint, claim: PlanConflictClaim): Promise<void> {
+    await this.save({ ...checkpoint, planConflict: parsePlanConflictClaim(claim) });
+  }
+
   private pathFor(taskId: string): string {
     return checkpointPath(this.root, taskId);
   }
 }
 
 export function migrateCheckpoint(value: unknown): Checkpoint {
-  if (isRecord(value) && value.version === CHECKPOINT_VERSION) {
+  if (isRecord(value) && (value.version === 1 || value.version === CHECKPOINT_VERSION)) {
     if (Object.keys(value).some((key) => key !== "version" && key !== "checkpoint") || !("checkpoint" in value)) throw new Error("checkpoint version envelope contains unknown fields");
     return checkpointSchema.parse(value.checkpoint);
   }

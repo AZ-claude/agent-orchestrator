@@ -2,6 +2,7 @@ import { CodexInvocation, CodexLifecycleObservation, CodexProcess, observeCodexO
 import { appendFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { WorkerRole } from "../config/index.js";
 
 export interface LunaRunResult extends CodexLifecycleObservation {
   readonly pid: number | undefined;
@@ -13,6 +14,26 @@ export interface LunaRunResult extends CodexLifecycleObservation {
 export type ProcessFactory = (invocation: CodexInvocation, cwd: string) => CodexProcess;
 export interface LunaRunnerOptions { readonly logRoot?: string; readonly maxResumeAttempts?: number; }
 
+export interface RecoveryEvidence {
+  readonly taskId: string;
+  readonly acceptance: string;
+  readonly assumptions: readonly string[];
+  readonly invariants: readonly string[];
+  readonly branch: string;
+  readonly head: string;
+  readonly machineValidation: string;
+  readonly testFailures: readonly string[];
+  readonly reviewerFindings: readonly string[];
+  readonly attemptedFixSummary: string;
+}
+
+export interface WorkerSessionStart {
+  readonly role: WorkerRole;
+  readonly sessionId: string | null;
+  readonly fresh: boolean;
+  readonly evidence?: RecoveryEvidence;
+}
+
 export class LunaRunner {
   private readonly logRoot: string;
   private readonly maxResumeAttempts: number;
@@ -23,6 +44,11 @@ export class LunaRunner {
 
   start(prompt: string, worktree: string): Promise<LunaRunResult> {
     return this.run({ kind: "new", prompt }, worktree, 1);
+  }
+
+  /** Recovery is intentionally a new invocation; it never resumes Primary history. */
+  startRecovery(evidence: RecoveryEvidence, prompt: string, worktree: string): Promise<LunaRunResult> {
+    return this.run({ kind: "new", prompt: `${prompt}\n\nDurable recovery evidence:\n${JSON.stringify(evidence)}` }, worktree, 1);
   }
   resume(sessionId: string, prompt: string, worktree: string, attempt = 1): Promise<LunaRunResult> {
     if (attempt < 1 || attempt > this.maxResumeAttempts) throw new Error(`Luna resume attempt must be between 1 and ${this.maxResumeAttempts}`);

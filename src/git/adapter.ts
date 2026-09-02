@@ -16,6 +16,35 @@ export interface GitSnapshot {
   readonly changedFiles: readonly string[];
 }
 
+export interface MergeGateFacts {
+  readonly requiredTestsPass: boolean;
+  readonly machineValidationPass: boolean;
+  readonly scopePass: boolean;
+  readonly unexpectedDiffPass: boolean;
+  readonly cleanWorktree: boolean;
+  readonly pushedBranch: boolean;
+  readonly dependencyBasePass: boolean;
+  readonly reviewedHead: string;
+  readonly currentHead: string;
+  readonly unresolvedHumanGate: boolean;
+  readonly activeMergeBarrier: boolean;
+}
+
+export interface MergeGateResult {
+  readonly pass: boolean;
+  readonly failedGates: readonly string[];
+  readonly reviewedHead: string;
+  readonly currentHead: string;
+}
+
+export interface MergeRequest {
+  readonly repo: string;
+  readonly baseBranch: string;
+  readonly sourceBranch: string;
+  readonly facts: MergeGateFacts;
+  readonly sourceWorktree?: string;
+}
+
 export class GitCommandError extends Error {
   constructor(readonly command: string, readonly args: readonly string[], readonly result: CommandResult) {
     super(`git ${command} failed (${result.code}): ${result.stderr || result.stdout}`);
@@ -78,6 +107,41 @@ export class GitAdapter {
     return this.isAncestor(head, `origin/${remoteBranch}`, repo);
   }
   async fetch(repo: string, baseBranch: string): Promise<void> { await this.must(repo, ["fetch", "origin", baseBranch]); }
+
+  /** Pure deterministic gate evaluation. No semantic/reviewer decision is inferred. */
+  evaluateMergeGates(facts: MergeGateFacts): MergeGateResult {
+    const checks: Array<[string, boolean]> = [
+      ["required-tests", facts.requiredTestsPass],
+      ["machine-validation", facts.machineValidationPass],
+      ["scope", facts.scopePass],
+      ["unexpected-diff", facts.unexpectedDiffPass],
+      ["clean-worktree", facts.cleanWorktree],
+      ["pushed-branch", facts.pushedBranch],
+      ["dependency-base-consistency", facts.dependencyBasePass],
+      ["reviewed-head-equality", facts.reviewedHead !== "" && facts.reviewedHead === facts.currentHead],
+      ["no-unresolved-human-gate", !facts.unresolvedHumanGate],
+      ["no-merge-barrier", !facts.activeMergeBarrier],
+    ];
+    return { pass: checks.every(([, pass]) => pass), failedGates: checks.filter(([, pass]) => !pass).map(([name]) => name), reviewedHead: facts.reviewedHead, currentHead: facts.currentHead };
+  }
+
+  /**
+   * Performs the ordinary target-repository merge only after all facts pass.
+   * Callers should use a disposable repository in tests; this adapter never
+   * decides whether the reviewer was semantically correct.
+   */
+  async mergeReviewedBranch(request: MergeRequest): Promise<MergeGateResult> {
+    const gates = this.evaluateMergeGates(request.facts);
+    if (!gates.pass) return gates;
+    const current = request.sourceWorktree === undefined ? request.facts.currentHead : await this.head(request.sourceWorktree);
+    if (current !== request.facts.currentHead || current !== request.facts.reviewedHead) {
+      return { ...gates, pass: false, failedGates: ["reviewed-head-equality"], currentHead: current };
+    }
+    await this.must(request.repo, ["checkout", request.baseBranch]);
+    await this.must(request.repo, ["merge", "--no-edit", request.sourceBranch]);
+    await this.must(request.repo, ["push", "origin", request.baseBranch]);
+    return gates;
+  }
 
   async scopeCheck(worktree: string, baseRef: string, allowedPaths: readonly string[]): Promise<{ readonly pass: boolean; readonly unexpected: readonly string[] }> {
     const files = await this.changedFiles(worktree, baseRef);

@@ -19,6 +19,8 @@ export interface ValidationEvidence {
   readonly worktreeCheck?: "PASS" | "FAIL";
   readonly baseAncestor?: "PASS" | "FAIL";
   readonly previousRework?: string;
+  readonly testFailureSignature?: string;
+  readonly unexpectedDiffPass?: boolean;
 }
 
 export interface ReviewPacket extends ValidationEvidence {
@@ -27,6 +29,8 @@ export interface ReviewPacket extends ValidationEvidence {
   readonly worktree: string;
   readonly baseRef: string;
   readonly acceptance: string;
+  readonly assumptions?: readonly string[];
+  readonly invariants?: readonly string[];
 }
 
 export interface ValidationOptions {
@@ -39,6 +43,7 @@ export interface ValidationOptions {
   readonly expectedBranch?: string;
   readonly expectedWorktree?: string;
   readonly previousRework?: string;
+  readonly testFailureSignature?: string;
 }
 
 export class MachineValidator {
@@ -70,7 +75,11 @@ export class MachineValidator {
       worktreeCheck: worktreePass ? "PASS" : "FAIL",
       baseAncestor: baseAncestor ? "PASS" : "FAIL",
       ...(options.previousRework === undefined ? {} : { previousRework: options.previousRework }),
+      ...(options.testFailureSignature === undefined ? {} : { testFailureSignature: options.testFailureSignature }),
+      unexpectedDiffPass: scope.unexpected.length === 0,
       acceptance: options.acceptance ?? task.title,
+      assumptions: task.assumptions ?? [],
+      invariants: task.invariants ?? [],
     };
   }
 
@@ -104,6 +113,8 @@ export function compactReviewPacket(packet: ReviewPacket): string {
     `Base ancestor: ${packet.baseAncestor ?? "UNKNOWN"}`,
     ...(packet.previousRework === undefined ? [] : [`Previous rework: ${packet.previousRework}`]),
     `Acceptance: ${packet.acceptance}`,
+    `Assumptions: ${packet.assumptions?.join(" | ") || "NONE"}`,
+    `Invariants: ${packet.invariants?.join(" | ") || "NONE"}`,
   ].join("\n");
 }
 

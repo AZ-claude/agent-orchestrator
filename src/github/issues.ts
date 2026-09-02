@@ -117,8 +117,12 @@ export class GitHubIssueProjector {
     return issues.find((issue) => issue.body.includes(marker)) ?? null;
   }
   private taskBody(manifest: TaskManifest, task: ManifestTask, parentNumber: number): string {
-    return [TASK_MARKER(task.id), `Canonical task: ${manifest.handoff.board}#${task.id}`, `Depends on: ${task.dependsOn.join(", ") || "none"}`, `Parallel: ${task.parallel}`, `Human gate: ${task.humanGate}`, `Parent issue: #${parentNumber}`].join("\n");
+    return [TASK_MARKER(task.id), `Canonical task: ${manifest.handoff.board}#${task.id}`, `Depends on: ${task.dependsOn.join(", ") || "none"}`, `Parallel: ${task.parallel}`, `Human gate: ${task.humanGate}`, `Assumptions: ${task.assumptions?.join(" | ") || "none"}`, `Invariants: ${task.invariants?.join(" | ") || "none"}`, `Parent issue: #${parentNumber}`].join("\n");
   }
+}
+
+export function planConflictComment(claim: import("../config/index.js").PlanConflictClaim): string {
+  return ["PLAN_CONFLICT claim (awaiting Independent Reviewer confirmation)", `Task: ${claim.taskId}`, `Canonical refs: ${claim.canonicalRequirementRefs.join(", ")}`, `Conflicting fields: ${claim.conflictingTaskFields.join(", ")}`, `Repository evidence: ${claim.repoEvidence.join(" | ")}`, `Why out of scope: ${claim.whyWorkerCannotResolveWithinScope}`, ...(claim.proposedPlanChange === undefined ? [] : [`Proposed plan change: ${claim.proposedPlanChange}`])].join("\n");
 }
 
 function parseCreatedIssue(output: string, title: string, body: string): IssueSnapshot {

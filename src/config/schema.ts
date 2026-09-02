@@ -32,6 +32,23 @@ export const REVIEW_RESULTS = ["APPROVE", "REWORK", "BLOCKED_HUMAN"] as const;
 
 export type ReviewResultKind = (typeof REVIEW_RESULTS)[number];
 
+export const WORKER_ROLES = ["primary", "recovery"] as const;
+export type WorkerRole = (typeof WORKER_ROLES)[number];
+
+export const SESSION_LIFECYCLES = ["ACTIVE", "RESUMABLE", "RETIRED", "CLEANUP"] as const;
+export type SessionLifecycle = (typeof SESSION_LIFECYCLES)[number];
+
+export const CLAIM_TYPES = ["PLAN_CONFLICT", "REQUIREMENT_CONFLICT"] as const;
+export type ClaimType = (typeof CLAIM_TYPES)[number];
+
+export const PLAN_REVIEW_RESULTS = ["PLAN_CONFLICT_CONFIRMED", "NOT_CONFIRMED"] as const;
+export type PlanReviewResult = (typeof PLAN_REVIEW_RESULTS)[number];
+
+export const HUMAN_GATE_REASONS = ["REQUIREMENT_CONFLICT", "RECOVERY_EXHAUSTED", "PREDECLARED_OPERATION"] as const;
+export type HumanGateReason = (typeof HUMAN_GATE_REASONS)[number];
+export const PLAN_TASK_STATES = ["PLANNED", "READY", "IN_PROGRESS", "DONE"] as const;
+export type PlanTaskState = (typeof PLAN_TASK_STATES)[number];
+
 /** v1 is intentionally limited to the first pilot repository. */
 export const PILOT_TARGET_REPO = "/Users/eita/projects/slot";
 
@@ -58,6 +75,30 @@ export interface ManifestHandoff {
   readonly targetRepo: string;
   readonly baseBranch: string;
   readonly implementationPromptTemplate: string;
+  readonly legacyManifest?: string;
+}
+
+export interface PlanConflictClaim {
+  readonly conflictType: "PLAN_CONFLICT";
+  readonly taskId: string;
+  readonly canonicalRequirementRefs: readonly string[];
+  readonly conflictingTaskFields: readonly string[];
+  readonly repoEvidence: readonly string[];
+  readonly whyWorkerCannotResolveWithinScope: string;
+  readonly proposedPlanChange?: string;
+}
+
+export interface ReviewFact {
+  readonly result: "APPROVE" | "REWORK" | "PLAN_CONFLICT_CONFIRMED" | "NOT_CONFIRMED";
+  readonly cycle: number;
+  readonly findingSignature?: string;
+  readonly testFailureSignature?: string;
+}
+
+export interface RecoveryFact {
+  readonly takeoverCount: number;
+  readonly status: "not-started" | "active" | "exhausted" | "approved";
+  readonly attemptedFixSummary?: string;
 }
 
 export interface ManifestTask {
@@ -68,9 +109,17 @@ export interface ManifestTask {
   readonly humanGate: boolean;
   readonly allowedPaths: readonly string[];
   readonly test: string;
+  readonly assumptions?: readonly string[];
+  readonly invariants?: readonly string[];
+  readonly state?: PlanTaskState;
+  readonly nonScope?: readonly string[];
+  readonly completion?: string;
 }
 
 export interface TaskManifest {
+  /** v1 manifests omit this field; delta manifests use version 2. */
+  readonly version?: 2;
+  readonly planningAuthority?: "Terra";
   readonly handoff: ManifestHandoff;
   readonly workerCompletionContract: WorkerCompletionContract;
   readonly tasks: readonly ManifestTask[];
@@ -82,7 +131,7 @@ export interface WorkerCompletionContract {
   readonly reviewerContext: "task-scope-source-head-review-packet-only";
   readonly reviewerHistory: "none";
   readonly onRework: "same-implementation-session-fix-validate-rereview";
-  readonly completion: "reviewer-approve-required-before-terra";
+  readonly completion: "reviewer-approve-required-before-terra" | "reviewer-approve-required-before-merge";
   readonly fallback: "only-if-subagent-capability-unavailable";
 }
 
@@ -101,6 +150,11 @@ export interface Checkpoint {
   readonly pid: number | null;
   readonly lastHead: string | null;
   readonly retryAt: string | null;
+  readonly workerRole?: WorkerRole;
+  readonly lifecycle?: SessionLifecycle;
+  readonly review?: ReviewFact;
+  readonly recovery?: RecoveryFact;
+  readonly planConflict?: PlanConflictClaim;
 }
 
 export type ReviewResult =
@@ -164,6 +218,22 @@ export function parseCheckpoint(value: unknown): Checkpoint {
 
 export function parseReviewResult(value: unknown): ReviewResult {
   return parseWith("review result", value, validateReviewResult);
+}
+
+export function parsePlanConflictClaim(value: unknown): PlanConflictClaim {
+  return parseWith("PLAN_CONFLICT claim", value, (input, path, issues) => {
+    if (input === undefined) { issues.push(issue(path, "is required")); return undefined; }
+    const parsed = validatePlanConflictClaim(input, path, issues);
+    return parsed === null ? undefined : parsed;
+  });
+}
+
+export function assertSafeDurableText(value: string, path = "$"): string {
+  if (value.trim() === "") throw new SchemaValidationError("durable state", [{ path, message: "must be non-empty" }]);
+  if (/password|secret|token|api[_ -]?key|private[_ -]?key|prompt|reasoning|conversation history/i.test(value)) {
+    throw new SchemaValidationError("durable state", [{ path, message: "must not contain secrets or private reasoning" }]);
+  }
+  return value;
 }
 
 export interface SafeParseSuccess<T> {
@@ -267,17 +337,27 @@ function validateManifest(value: unknown, path: string, issues: ValidationIssue[
     issues.push(issue(path, "must be an object"));
     return undefined;
   }
-  rejectUnknown(value, ["handoff", "workerCompletionContract", "tasks"], path, issues);
+  rejectUnknown(value, ["version", "planningAuthority", "handoff", "workerCompletionContract", "tasks"], path, issues);
+  const isDelta = value.version === 2 || value.planningAuthority === "Terra" || value.handoff !== undefined && isRecord(value.handoff) && value.handoff.id === "agent-orchestrator-preinstall-delta";
+  const version = value.version === undefined && isDelta ? 2 : value.version === 2 ? 2 : undefined;
+  if (value.version !== undefined && value.version !== 2) issues.push(issue(`${path}.version`, "must equal 2"));
+  const planningAuthority = value.planningAuthority === undefined && isDelta ? "Terra" : value.planningAuthority;
+  if (isDelta && planningAuthority !== "Terra") issues.push(issue(`${path}.planningAuthority`, "must equal Terra"));
+  if (!isDelta && value.planningAuthority !== undefined) issues.push(issue(`${path}.planningAuthority`, "is only allowed for version 2 manifests"));
   const handoff = requiredRecord(value, "handoff", path, issues);
   const tasks = requiredArray(value, "tasks", path, issues);
   if (handoff) {
-    rejectUnknown(handoff, ["id", "source", "board", "targetRepo", "baseBranch", "implementationPromptTemplate"], `${path}.handoff`, issues);
+    rejectUnknown(handoff, ["id", "source", "board", "targetRepo", "baseBranch", "implementationPromptTemplate", "legacyManifest"], `${path}.handoff`, issues);
   }
   const handoffValue = handoff ? validateManifestHandoff(handoff, `${path}.handoff`, issues, expectedTargetRepo) : undefined;
-  const contract = validateWorkerCompletionContract(value.workerCompletionContract, `${path}.workerCompletionContract`, issues);
+  const contract = value.workerCompletionContract === undefined && isDelta
+    ? defaultDeltaCompletionContract()
+    : validateWorkerCompletionContract(value.workerCompletionContract, `${path}.workerCompletionContract`, issues);
   const taskValues = tasks?.map((task, index) => validateManifestTask(task, `${path}.tasks[${index}]`, issues));
   if (handoffValue !== undefined && contract !== undefined && taskValues !== undefined && taskValues.every(isDefined)) {
     return {
+      ...(version === undefined ? {} : { version }),
+      ...(planningAuthority === "Terra" ? { planningAuthority } : {}),
       handoff: handoffValue,
       workerCompletionContract: contract,
       tasks: taskValues,
@@ -297,14 +377,16 @@ function validateWorkerCompletionContract(value: unknown, path: string, issues: 
     reviewerContext: "task-scope-source-head-review-packet-only",
     reviewerHistory: "none",
     onRework: "same-implementation-session-fix-validate-rereview",
-    completion: "reviewer-approve-required-before-terra",
+    completion: "reviewer-approve-required-before-merge",
     fallback: "only-if-subagent-capability-unavailable",
   } as const;
   rejectUnknown(value, Object.keys(fields), path, issues);
   const parsed = {} as Record<keyof typeof fields, string>;
   for (const [key, expected] of Object.entries(fields) as Array<[keyof typeof fields, string]>) {
     const candidate = requiredString(value, key, path, issues);
-    if (candidate !== undefined && candidate !== expected) {
+    if (candidate !== undefined && key === "completion" && candidate !== "reviewer-approve-required-before-terra" && candidate !== "reviewer-approve-required-before-merge") {
+      issues.push(issue(`${path}.${key}`, `must equal ${expected} or reviewer-approve-required-before-merge`));
+    } else if (candidate !== undefined && key !== "completion" && candidate !== expected) {
       issues.push(issue(`${path}.${key}`, `must equal ${expected}`));
     }
     if (candidate !== undefined) parsed[key] = candidate;
@@ -320,8 +402,9 @@ function validateManifestHandoff(value: Record<string, unknown>, path: string, i
   const targetRepo = requiredExpectedTarget(value, "targetRepo", expectedTargetRepo, path, issues);
   const baseBranch = requiredString(value, "baseBranch", path, issues);
   const implementationPromptTemplate = requiredRelativePath(value, "implementationPromptTemplate", path, issues);
-  if (id !== undefined && source !== undefined && board !== undefined && targetRepo !== undefined && baseBranch !== undefined && implementationPromptTemplate !== undefined) {
-    return { id, source, board, targetRepo, baseBranch, implementationPromptTemplate };
+  const legacyManifest = value.legacyManifest === undefined ? null : requiredRelativePath(value, "legacyManifest", path, issues);
+  if (id !== undefined && source !== undefined && board !== undefined && targetRepo !== undefined && baseBranch !== undefined && implementationPromptTemplate !== undefined && legacyManifest !== undefined) {
+    return { id, source, board, targetRepo, baseBranch, implementationPromptTemplate, ...(legacyManifest === null ? {} : { legacyManifest }) };
   }
   return undefined;
 }
@@ -331,7 +414,7 @@ function validateManifestTask(value: unknown, path: string, issues: ValidationIs
     issues.push(issue(path, "must be an object"));
     return undefined;
   }
-  rejectUnknown(value, ["id", "title", "dependsOn", "parallel", "humanGate", "allowedPaths", "test"], path, issues);
+  rejectUnknown(value, ["id", "title", "dependsOn", "parallel", "humanGate", "allowedPaths", "test", "assumptions", "invariants", "state", "nonScope", "completion"], path, issues);
   const id = requiredString(value, "id", path, issues);
   const title = requiredString(value, "title", path, issues);
   const dependsOn = requiredStringArray(value, "dependsOn", path, issues);
@@ -339,8 +422,13 @@ function validateManifestTask(value: unknown, path: string, issues: ValidationIs
   const humanGate = requiredBoolean(value, "humanGate", path, issues);
   const allowedPaths = requiredRepoRelativeGlobArray(value, "allowedPaths", path, issues);
   const test = requiredString(value, "test", path, issues);
-  if (id !== undefined && title !== undefined && dependsOn !== undefined && parallel !== undefined && humanGate !== undefined && allowedPaths !== undefined && test !== undefined) {
-    return { id, title, dependsOn, parallel, humanGate, allowedPaths, test };
+  const assumptions = optionalStringArray(value, "assumptions", path, issues);
+  const invariants = optionalStringArray(value, "invariants", path, issues);
+  const state = optionalEnum(value, "state", PLAN_TASK_STATES, path, issues);
+  const nonScope = optionalStringArray(value, "nonScope", path, issues);
+  const completion = optionalString(value, "completion", path, issues);
+  if (id !== undefined && title !== undefined && dependsOn !== undefined && parallel !== undefined && humanGate !== undefined && allowedPaths !== undefined && test !== undefined && assumptions !== undefined && invariants !== undefined && state !== undefined && nonScope !== undefined && completion !== undefined) {
+    return { id, title, dependsOn, parallel, humanGate, allowedPaths, test, ...(assumptions === null ? {} : { assumptions }), ...(invariants === null ? {} : { invariants }), ...(state === null ? {} : { state }), ...(nonScope === null ? {} : { nonScope }), ...(completion === null ? {} : { completion }) };
   }
   return undefined;
 }
@@ -350,7 +438,7 @@ function validateCheckpoint(value: unknown, path: string, issues: ValidationIssu
     issues.push(issue(path, "must be an object"));
     return undefined;
   }
-  rejectUnknown(value, ["issueNumber", "taskId", "phase", "attempt", "sessionId", "branch", "worktree", "pid", "lastHead", "retryAt"], path, issues);
+  rejectUnknown(value, ["issueNumber", "taskId", "phase", "attempt", "sessionId", "branch", "worktree", "pid", "lastHead", "retryAt", "workerRole", "lifecycle", "review", "recovery", "planConflict"], path, issues);
   const issueNumber = requiredPositiveInteger(value, "issueNumber", path, issues);
   const taskId = requiredString(value, "taskId", path, issues);
   const phase = requiredEnum(value, "phase", CHECKPOINT_PHASES, path, issues);
@@ -361,8 +449,13 @@ function validateCheckpoint(value: unknown, path: string, issues: ValidationIssu
   const pid = requiredNullablePositiveInteger(value, "pid", path, issues);
   const lastHead = requiredNullableString(value, "lastHead", path, issues);
   const retryAt = requiredNullableIsoDate(value, "retryAt", path, issues);
-  if (issueNumber !== undefined && taskId !== undefined && phase !== undefined && attempt !== undefined && sessionId !== undefined && branch !== undefined && worktree !== undefined && pid !== undefined && lastHead !== undefined && retryAt !== undefined) {
-    return { issueNumber, taskId, phase, attempt, sessionId, branch, worktree, pid, lastHead, retryAt };
+  const workerRole = optionalEnum(value, "workerRole", WORKER_ROLES, path, issues);
+  const lifecycle = optionalEnum(value, "lifecycle", SESSION_LIFECYCLES, path, issues);
+  const review = optionalReviewFact(value.review, `${path}.review`, issues);
+  const recovery = optionalRecoveryFact(value.recovery, `${path}.recovery`, issues);
+  const planConflict = value.planConflict === undefined ? null : validatePlanConflictClaim(value.planConflict, `${path}.planConflict`, issues);
+  if (issueNumber !== undefined && taskId !== undefined && phase !== undefined && attempt !== undefined && sessionId !== undefined && branch !== undefined && worktree !== undefined && pid !== undefined && lastHead !== undefined && retryAt !== undefined && workerRole !== undefined && lifecycle !== undefined && review !== undefined && recovery !== undefined && planConflict !== undefined) {
+    return { issueNumber, taskId, phase, attempt, sessionId, branch, worktree, pid, lastHead, retryAt, ...(workerRole === null ? {} : { workerRole }), ...(lifecycle === null ? {} : { lifecycle }), ...(review === null ? {} : { review }), ...(recovery === null ? {} : { recovery }), ...(planConflict === null ? {} : { planConflict }) };
   }
   return undefined;
 }
@@ -382,6 +475,98 @@ function validateReviewResult(value: unknown, path: string, issues: ValidationIs
   const reason = requiredString(value, "reason", path, issues);
   if (reason !== undefined && !issuesForPath(issues, path)) return { result, reason };
   return undefined;
+}
+
+function defaultDeltaCompletionContract(): WorkerCompletionContract {
+  return {
+    independentReview: "required",
+    reviewer: "same-session-read-only-luna-subagent",
+    reviewerContext: "task-scope-source-head-review-packet-only",
+    reviewerHistory: "none",
+    onRework: "same-implementation-session-fix-validate-rereview",
+    completion: "reviewer-approve-required-before-terra",
+    fallback: "only-if-subagent-capability-unavailable",
+  };
+}
+
+function optionalStringArray(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): readonly string[] | null | undefined {
+  if (!(key in value)) return null;
+  return requiredStringArray(value, key, path, issues);
+}
+
+function optionalString(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): string | null | undefined {
+  if (!(key in value)) return null;
+  return requiredString(value, key, path, issues);
+}
+
+function optionalEnum<T extends string>(value: Record<string, unknown>, key: string, allowed: readonly T[], path: string, issues: ValidationIssue[]): T | null | undefined {
+  if (!(key in value)) return null;
+  return requiredEnum(value, key, allowed, path, issues);
+}
+
+function optionalReviewFact(value: unknown, path: string, issues: ValidationIssue[]): ReviewFact | null | undefined {
+  if (value === undefined) return null;
+  if (!isRecord(value)) { issues.push(issue(path, "must be an object")); return undefined; }
+  rejectUnknown(value, ["result", "cycle", "findingSignature", "testFailureSignature"], path, issues);
+  const result = requiredEnum(value, "result", ["APPROVE", "REWORK", "PLAN_CONFLICT_CONFIRMED", "NOT_CONFIRMED"] as const, path, issues);
+  const cycle = requiredPositiveInteger(value, "cycle", path, issues);
+  const findingSignature = optionalSafeString(value, "findingSignature", path, issues);
+  const testFailureSignature = optionalSafeString(value, "testFailureSignature", path, issues);
+  if (result !== undefined && cycle !== undefined && findingSignature !== undefined && testFailureSignature !== undefined) {
+    return { result, cycle, ...(findingSignature === null ? {} : { findingSignature }), ...(testFailureSignature === null ? {} : { testFailureSignature }) };
+  }
+  return undefined;
+}
+
+function optionalRecoveryFact(value: unknown, path: string, issues: ValidationIssue[]): RecoveryFact | null | undefined {
+  if (value === undefined) return null;
+  if (!isRecord(value)) { issues.push(issue(path, "must be an object")); return undefined; }
+  rejectUnknown(value, ["takeoverCount", "status", "attemptedFixSummary"], path, issues);
+  const takeoverCount = requiredNonNegativeInteger(value, "takeoverCount", path, issues);
+  const status = requiredEnum(value, "status", ["not-started", "active", "exhausted", "approved"] as const, path, issues);
+  const attemptedFixSummary = optionalSafeString(value, "attemptedFixSummary", path, issues);
+  if (takeoverCount !== undefined && status !== undefined && attemptedFixSummary !== undefined) return { takeoverCount, status, ...(attemptedFixSummary === null ? {} : { attemptedFixSummary }) };
+  return undefined;
+}
+
+function validatePlanConflictClaim(value: unknown, path: string, issues: ValidationIssue[]): PlanConflictClaim | null | undefined {
+  if (value === undefined) return null;
+  if (!isRecord(value)) { issues.push(issue(path, "must be an object")); return undefined; }
+  rejectUnknown(value, ["conflictType", "taskId", "canonicalRequirementRefs", "conflictingTaskFields", "repoEvidence", "whyWorkerCannotResolveWithinScope", "proposedPlanChange"], path, issues);
+  const conflictType = requiredLiteral(value, "conflictType", "PLAN_CONFLICT", path, issues);
+  const taskId = requiredString(value, "taskId", path, issues);
+  const canonicalRequirementRefs = requiredSafeStringArray(value, "canonicalRequirementRefs", path, issues);
+  const conflictingTaskFields = requiredSafeStringArray(value, "conflictingTaskFields", path, issues);
+  const repoEvidence = requiredSafeStringArray(value, "repoEvidence", path, issues);
+  const whyWorkerCannotResolveWithinScope = requiredSafeString(value, "whyWorkerCannotResolveWithinScope", path, issues);
+  const proposedPlanChange = optionalSafeString(value, "proposedPlanChange", path, issues);
+  if (conflictType !== undefined && taskId !== undefined && canonicalRequirementRefs !== undefined && conflictingTaskFields !== undefined && repoEvidence !== undefined && whyWorkerCannotResolveWithinScope !== undefined && proposedPlanChange !== undefined) {
+    return { conflictType, taskId, canonicalRequirementRefs, conflictingTaskFields, repoEvidence, whyWorkerCannotResolveWithinScope, ...(proposedPlanChange === null ? {} : { proposedPlanChange }) };
+  }
+  return undefined;
+}
+
+function optionalSafeString(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): string | null | undefined {
+  if (!(key in value)) return null;
+  return requiredSafeString(value, key, path, issues);
+}
+
+function requiredSafeString(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): string | undefined {
+  const candidate = requiredString(value, key, path, issues);
+  if (candidate !== undefined && /password|secret|token|api[_ -]?key|private[_ -]?key|prompt|reasoning|conversation history/i.test(candidate)) issues.push(issue(`${path}.${key}`, "must not contain secrets or private reasoning"));
+  return candidate;
+}
+
+function requiredSafeStringArray(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): readonly string[] | undefined {
+  const candidates = requiredArray(value, key, path, issues);
+  if (candidates === undefined) return undefined;
+  const strings: string[] = [];
+  for (const [index, candidate] of candidates.entries()) {
+    if (typeof candidate !== "string" || candidate.trim() === "") issues.push(issue(`${path}.${key}[${index}]`, "must be a non-empty string"));
+    else if (/password|secret|token|api[_ -]?key|private[_ -]?key|prompt|reasoning|conversation history/i.test(candidate)) issues.push(issue(`${path}.${key}[${index}]`, "must not contain secrets or private reasoning"));
+    else strings.push(candidate);
+  }
+  return strings.length === candidates.length ? strings : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

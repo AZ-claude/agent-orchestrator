@@ -8,6 +8,7 @@ import {
   manifestSchema,
   parseManifest,
   parseManifestForPilot,
+  parsePlanConflictClaim,
   parseReviewResult,
   SchemaValidationError,
 } from "../src/config/schema.js";
@@ -147,4 +148,20 @@ test("canonical manifest requires the independent-review contract", () => {
   assert.doesNotThrow(() => manifestSchema.parse(canonical));
   assert.equal(manifestSchema.safeParse({ ...canonical, workerCompletionContract: undefined }).success, false);
   assert.equal(manifestSchema.safeParse({ ...canonical, handoff: { ...canonical.handoff, implementationPromptTemplate: undefined } }).success, false);
+});
+
+test("delta manifest accepts versioned assumptions/invariants and durable facts fail closed", () => {
+  const delta = { version: 2, planningAuthority: "Terra", handoff: { id: "agent-orchestrator-preinstall-delta", source: "docs/HANDOFF.md", board: "docs/board.md", targetRepo: "/Users/eita/projects/slot", baseBranch: "main", implementationPromptTemplate: "prompts/luna-implementation-task.md", legacyManifest: "tasks/legacy.yaml" }, tasks: [{ id: "AO-17", title: "contract", state: "PLANNED", dependsOn: [], parallel: "SAFE", humanGate: false, allowedPaths: ["src/config/**"], nonScope: ["production"], completion: "schema", assumptions: ["legacy is readable"], invariants: ["no secret"], test: "true" }] };
+  const parsed = manifestSchema.parse(delta);
+  assert.equal(parsed.version, 2);
+  assert.deepEqual(parsed.tasks[0]?.assumptions, ["legacy is readable"]);
+  assert.deepEqual(parsed.tasks[0]?.invariants, ["no secret"]);
+  assert.equal(manifestSchema.safeParse({ ...delta, unsafe: true }).success, false);
+  assert.throws(() => parsePlanConflictClaim({ conflictType: "PLAN_CONFLICT", taskId: "AO-17", canonicalRequirementRefs: ["HANDOFF"], conflictingTaskFields: ["scope"], repoEvidence: ["file exists"], whyWorkerCannotResolveWithinScope: "required path" , proposedPlanChange: "token=bad" }), /secrets|private reasoning/);
+});
+
+test("checkpoint accepts lifecycle/review/recovery facts but no private reasoning", () => {
+  const checkpoint = { issueNumber: 1, taskId: "AO-17", phase: "luna", attempt: 1, sessionId: null, branch: "agent/AO-17", worktree: "/tmp/ao", pid: null, lastHead: null, retryAt: null, workerRole: "recovery", lifecycle: "ACTIVE", review: { result: "REWORK", cycle: 1, findingSignature: "missing test" }, recovery: { takeoverCount: 1, status: "active", attemptedFixSummary: "added fixture" } };
+  assert.equal(checkpointSchema.parse(checkpoint).workerRole, "recovery");
+  assert.equal(checkpointSchema.safeParse({ ...checkpoint, review: { result: "REWORK", cycle: 1, findingSignature: "private reasoning omitted" } }).success, false);
 });

@@ -1,4 +1,4 @@
-# Agent Orchestrator v1 operator runbook
+# Agent Orchestrator pre-install delta operator runbook
 
 ## Commands
 
@@ -10,8 +10,13 @@ Run `npm run build` before using the CLI. The operational commands are:
 - `reconcile`: perform startup reconciliation without dispatching new work.
 - `status`: print checkpoint/Issue/process status.
 
-The daemon does not merge branches, modify production databases or schedulers,
-or invoke an LLM while polling, scheduling, validation, or recovery runs.
+The daemon may auto-merge only after the Independent Reviewer has approved and
+all deterministic gates pass: tests, machine validation, scope/unexpected diff,
+clean worktree, pushed branch, dependency/base consistency, reviewed-HEAD
+equality, no Human Gate, and no global Plan Revision barrier. The daemon never
+infers semantic approval and does not invoke an LLM while polling, scheduling,
+validation, or merge-gate evaluation runs. It never modifies production data or
+schedulers.
 
 ## Failure diagnosis
 
@@ -20,8 +25,18 @@ or invoke an LLM while polling, scheduling, validation, or recovery runs.
 3. For a dirty worktree, scope mismatch, missing session, or exhausted retry,
    leave the task `blocked-human` and resolve the fact manually.
 4. A rate limit is a pause: wait for `retryAt`; do not create a new session.
-5. A Terra `APPROVE` is not close authority until the remote base contains the
-   task HEAD. Terra performs the merge; the daemon only verifies and closes.
+5. A normal `REWORK` resumes the same Primary Worker, up to three cycles.
+   Repeated findings/test failures or simple diff oscillation trigger one fresh
+   Recovery Worker. Recovery receives durable evidence, not old conversation
+   history; if it is exhausted, pure implementation failure is `BLOCKED_HUMAN`.
+6. A Worker PLAN_CONFLICT claim is not enough to call Terra. An Independent
+   Reviewer must return `PLAN_CONFLICT_CONFIRMED`; only then does the daemon
+   enable the global merge barrier and pause the affected downstream set.
+   Unrelated SAFE work may continue. Terra is callable for Planning, confirmed
+   Plan Revision, and final acceptance only.
+7. Sessions are `ACTIVE`, `RESUMABLE`, `RETIRED`, or `CLEANUP`. Never delete a
+   RESUMABLE session; reviewer sessions are cleaned after durable evidence and
+   task sessions after close or takeover.
 
 Do not run production experiments from the pilot acceptance fixture. Do not
 install a LaunchAgent as part of normal daemon startup.

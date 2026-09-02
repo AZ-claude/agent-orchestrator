@@ -16,3 +16,16 @@ test("disposable pilot proves SAFE, EXCLUSIVE, review/rework, restart and rate-l
   assert.equal(result.scopeAccepted, true);
   assert.equal(result.scopeRejected, true);
 });
+
+test("pre-install delta pilot proves reviewed-head, recovery, plan barrier, lifecycle and authority boundaries", async () => {
+  const result = await runPilotFixture();
+  assert.equal(result.reviewedHeadRefused, true);
+  assert.equal(result.recoveryFresh, true);
+  assert.equal(result.recoveryReviewerRequired, true);
+  assert.equal(result.planConflictConfirmed, true);
+  assert.equal(result.barrierRefusesMerge, true);
+  assert.equal(result.unrelatedSafeContinues, true);
+  assert.equal(result.resumableRetained, true);
+  assert.equal(result.retiredCleaned, true);
+  assert.equal(result.authorityBoundary, true);
+});

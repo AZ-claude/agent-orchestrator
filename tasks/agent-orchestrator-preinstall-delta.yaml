@@ -1,3 +1,6 @@
+version: 2
+planningAuthority: Terra
+
 handoff:
   id: agent-orchestrator-preinstall-delta
   source: docs/HANDOFF_2026-09-02_AGENT_ORCHESTRATOR_PREINSTALL_DELTA.md
@@ -7,9 +10,17 @@ handoff:
   implementationPromptTemplate: prompts/luna-implementation-task.md
   legacyManifest: tasks/agent-orchestrator-v1.yaml
 
+workerCompletionContract:
+  independentReview: required
+  reviewer: same-session-read-only-luna-subagent
+  reviewerContext: task-scope-source-head-review-packet-only
+  reviewerHistory: none
+  onRework: same-implementation-session-fix-validate-rereview
+  completion: reviewer-approve-required-before-merge
+  fallback: only-if-subagent-capability-unavailable
+
 # Planning artifact schema. AO-17 makes this projection accepted by the daemon.
 # Only Planning Terra may change fields that carry task-board/DAG meaning.
-planningAuthority: Terra
 tasks:
   - id: AO-17
     title: Canonical delta contract, manifest, and durable state

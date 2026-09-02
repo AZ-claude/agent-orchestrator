@@ -1,7 +1,29 @@
-import { Checkpoint, ExecutionState } from "../config/index.js";
+import { Checkpoint, ExecutionState, SessionLifecycle, WorkerRole } from "../config/index.js";
 
 export interface ReconcileObservation { readonly checkpoint: Checkpoint; readonly issueState: ExecutionState | "closed"; readonly processAlive: boolean; readonly pushedHead: boolean; readonly sessionExists: boolean; readonly rateLimited: boolean; readonly now: Date; }
 export type ReconcileAction = { readonly kind: "watch" | "validate" | "resume-luna" | "resume-terra" | "pause" | "cleanup-candidate" | "blocked-human" | "skip-completed"; readonly retryAt?: string; readonly reason?: string };
+
+export interface SessionRecord { readonly sessionId: string; readonly taskId: string; readonly role: WorkerRole; readonly lifecycle: SessionLifecycle; }
+
+export function canCleanupSession(session: Pick<SessionRecord, "lifecycle">): boolean { return session.lifecycle === "RETIRED" || session.lifecycle === "CLEANUP"; }
+
+export function nextSessionLifecycle(from: SessionLifecycle, to: SessionLifecycle): SessionLifecycle {
+  const allowed: Record<SessionLifecycle, readonly SessionLifecycle[]> = { ACTIVE: ["RESUMABLE", "RETIRED"], RESUMABLE: ["ACTIVE", "RETIRED"], RETIRED: ["CLEANUP"], CLEANUP: [] };
+  if (!allowed[from].includes(to)) throw new Error(`invalid session lifecycle ${from} -> ${to}`);
+  return to;
+}
+
+export function cleanupSessions(sessions: readonly SessionRecord[]): readonly SessionRecord[] {
+  return sessions.filter((session) => canCleanupSession(session));
+}
+
+export interface RevisionSyncFacts { readonly boardDigest: string; readonly manifestDigest: string; readonly expectedDigest: string; readonly directive: "resume" | "restart"; }
+
+export function synchronizePlanRevision(facts: RevisionSyncFacts): "resume" | "restart" {
+  if (facts.boardDigest === "" || facts.manifestDigest === "" || facts.expectedDigest === "") throw new Error("missing plan revision evidence");
+  if (facts.boardDigest !== facts.manifestDigest || facts.boardDigest !== facts.expectedDigest) throw new Error("board/manifest revision evidence mismatch");
+  return facts.directive;
+}
 
 export function reconcile(observation: ReconcileObservation, retryIntervalMs: number): ReconcileAction {
   const { checkpoint: cp } = observation;
