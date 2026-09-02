@@ -2,6 +2,17 @@
 
 Status: PASS (disposable/local fixtures only)
 
+## Independent Reviewer
+
+Result: `APPROVE` (read-only, no code/worktree mutation)
+
+Reviewed HEAD: `6126b6b173584f3c2c2cad73936a4c495ed64b5a`
+
+The reviewer checked the canonical AO-17–AO-22 acceptance, changed-path
+scope, authority/safety boundary, reviewed-HEAD refusal, and durable pilot
+evidence. `git diff --check`, all 66 tests, build, and lint passed. No REWORK,
+PLAN_CONFLICT, or REQUIREMENT_CONFLICT was found.
+
 The pilot is executed by `runPilotFixture()` and covers the delta acceptance
 surface: Independent Reviewer approval before the daemon merge adapter,
 reviewed-HEAD mismatch refusal, bounded same-session rework, repeated-finding
