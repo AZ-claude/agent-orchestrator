@@ -108,7 +108,7 @@ tasks:
     invariants: [Final acceptance is whole-product only and never direct code repair; real-host install remains excluded.]
   - id: AO-24
     title: Executable daemon composition and LaunchAgent CLI entrypoint
-    state: READY
+    state: DONE
     dependsOn: [AO-23]
     parallel: EXCLUSIVE
     humanGate: false
@@ -120,7 +120,7 @@ tasks:
     invariants: [No semantic daemon judgment, no launchctl/install, no arbitrary external wrapper fallback, single slot pilot only.]
   - id: AO-25
     title: Operator install-readiness preflight and durable evidence
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-24]
     parallel: EXCLUSIVE
     humanGate: false
@@ -132,7 +132,7 @@ tasks:
     invariants: [Preflight is non-mutating and cannot invoke launchctl, create plist, or make network/API mutation.]
   - id: AO-26
     title: Final Terra Acceptance refresh after executable-entrypoint readiness
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-25]
     parallel: EXCLUSIVE
     humanGate: false

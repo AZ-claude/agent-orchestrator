@@ -10,6 +10,7 @@ const execFile = promisify(nodeExecFile);
 const root = process.cwd();
 const packaging = join(root, "packaging", "launchd");
 const manager = join(packaging, "manage.sh");
+const preflight = join(packaging, "preflight.sh");
 const label = "com.az-claude.agent-orchestrator";
 
 test("LaunchAgent template is valid and contains only supported controls", async () => {
@@ -48,6 +49,22 @@ test("verify is read-only and install lifecycle is explicit and disposable", asy
   assert.match(history, /bootout/);
   assert.match(history, /bootstrap/);
   assert.match(history, /print/);
+});
+
+test("read-only preflight validates the owned entrypoint/config and never calls launchctl", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ao-preflight-home-"));
+  const bin = await mkdtemp(join(tmpdir(), "ao-preflight-bin-"));
+  const calls = join(home, "launchctl.calls");
+  const fakeLaunchctl = join(bin, "launchctl");
+  await writeFile(fakeLaunchctl, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\nexit 0\n`, { mode: 0o700 });
+  await chmod(fakeLaunchctl, 0o700);
+  const config = join(root, "docs", "runbooks", "agent-orchestrator-config.example.yaml");
+  const env = { ...process.env, HOME: home, AO_LAUNCHD_HOME: home, AO_LAUNCHD_LAUNCHCTL: fakeLaunchctl, AO_LAUNCHD_NODE: process.execPath, AO_LAUNCHD_CLI: join(root, "bin", "agent-orchestrator.mjs"), AO_LAUNCHD_WORKDIR: root, AO_CONFIG_PATH: config };
+  const result = await execFile("sh", [preflight], { cwd: root, env });
+  assert.match(result.stdout, /preflight: PASS \(read-only\)/);
+  await assert.rejects(readFile(calls, "utf8"));
+  await assert.rejects(execFile("sh", [preflight], { cwd: root, env: { ...env, AO_CONFIG_PATH: join(home, "missing.yaml") } }), /AO_CONFIG_PATH/);
+  await assert.rejects(readFile(join(home, "Library", "LaunchAgents", `${label}.plist`), "utf8"));
 });
 
 function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }

@@ -2,6 +2,9 @@
   "name": "agent-orchestrator",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "agent-orchestrator": "./bin/agent-orchestrator.mjs"
+  },
   "description": "Pilot-only local daemon scaffolding for the Agent Orchestrator v1.",
   "type": "module",
   "engines": {

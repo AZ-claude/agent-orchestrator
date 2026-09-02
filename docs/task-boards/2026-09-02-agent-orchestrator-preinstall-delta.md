@@ -5,7 +5,7 @@ Canonical requirements: [pre-install delta HANDOFF](../HANDOFF_2026-09-02_AGENT_
 Legacy boundary: [v1 requirements](../HANDOFF_2026-08-31_AGENT_ORCHESTRATOR_V1_REQUIREMENTS.md), [v1 design](../DESIGN_2026-08-31_AGENT_ORCHESTRATOR_V1.md)  
 Machine-readable plan: [`tasks/agent-orchestrator-preinstall-delta.yaml`](../../tasks/agent-orchestrator-preinstall-delta.yaml)
 
-Status: **AO-17 through AO-23 DONE; AO-24 through AO-26 PLANNED — an executable CLI wrapper was not found during install-readiness investigation. Real-host installation remains blocked on these implementation/final-acceptance tasks, then stays an AO-16 operator Human Gate.**
+Status: **AO-17 through AO-25 DONE; AO-26 DONE / PASS — repository-owned entrypoint and read-only preflight are verified. Real-host installation remains the AO-16 operator Human Gate and was not performed.**
 
 ## 0. Authority, boundary, and common acceptance
 
@@ -104,7 +104,7 @@ AO-23 ─ AO-24 (executable daemon composition) ─ AO-25 (install-readiness pre
 
 ### AO-24 — Executable daemon composition and LaunchAgent CLI entrypoint
 
-- State: PLANNED; dependencies: AO-23; parallel: EXCLUSIVE; Human Gate: none.
+- State: DONE; dependencies: AO-23; parallel: EXCLUSIVE; Human Gate: none.
 - Scope / allowed paths: `bin/**`, `src/cli/**`, `src/config/**`, `src/checkpoint/**`, `src/controller/**`, `src/github/**`, `src/git/**`, `src/luna/**`, `src/manifest/**`, `src/reconcile/**`, `src/scheduler/**`, `src/validation/**`, `package.json`, `test/cli.test.ts`, `test/entrypoint.test.ts`, `docs/runbooks/agent-orchestrator.md`.
 - Non-scope: LaunchAgent registration/loading, live `/slot` mutations, production Scheduler/deploy/database changes, provider router/Qwen integration, dashboard/UI, arbitrary operator scripts outside this repository.
 - Completion / acceptance: ships one repository-owned executable entrypoint that supplies concrete, fail-closed `CliOperations` for `bootstrap`, `run-once`, `daemon`, `reconcile`, and `status`; reads only the canonical delta manifest/config; performs no work at module import; propagates failures with non-zero exit; is runnable from `node` after `npm run build`; and is the only documented value for `AO_LAUNCHD_CLI`.
@@ -114,7 +114,7 @@ AO-23 ─ AO-24 (executable daemon composition) ─ AO-25 (install-readiness pre
 
 ### AO-25 — Operator install-readiness preflight and durable evidence
 
-- State: PLANNED; dependencies: AO-24; parallel: EXCLUSIVE; Human Gate: none.
+- State: DONE; dependencies: AO-24; parallel: EXCLUSIVE; Human Gate: none.
 - Scope / allowed paths: `packaging/launchd/**`, `docs/runbooks/agent-orchestrator.md`, `docs/agent-runs/**`, `test/launchd/**`, `test/entrypoint.test.ts`.
 - Non-scope: `launchctl bootstrap`, generated plist creation in the actual user Library, daemon execution against a live Issue, production mutation, or real-host installation.
 - Completion / acceptance: `manage.sh verify` plus a new read-only preflight confirms the built repository-owned entrypoint exists, is executable via the configured Node binary, accepts the requested command shape, and supplies all required absolute paths before any install action; runbook contains a copyable operator-only install sequence using that entrypoint and rollback/status commands.
@@ -124,7 +124,7 @@ AO-23 ─ AO-24 (executable daemon composition) ─ AO-25 (install-readiness pre
 
 ### AO-26 — Final Terra Acceptance refresh after executable-entrypoint readiness
 
-- State: PLANNED; dependencies: AO-25; parallel: EXCLUSIVE; Human Gate: none unless result is `REQUIREMENT_CONFLICT`.
+- State: DONE / PASS; dependencies: AO-25; parallel: EXCLUSIVE; Human Gate: none unless result is `REQUIREMENT_CONFLICT`.
 - Scope / allowed paths: `docs/agent-runs/**`, `docs/task-boards/**`, `tasks/agent-orchestrator-preinstall-delta.yaml`, `test/final-acceptance.test.ts`.
 - Non-scope: code fixes, host install, plan changes except creation of corrective follow-up tasks after a Terra `REWORK`.
 - Completion / acceptance: Terra rechecks the whole canonical delta including the repository-owned entrypoint and read-only install preflight; records PASS, scoped corrective-task REWORK, or REQUIREMENT_CONFLICT. Only PASS permits the AO-16 human install step to be described as the sole remaining action.
@@ -147,4 +147,4 @@ AO-23 ─ AO-24 (executable daemon composition) ─ AO-25 (install-readiness pre
 
 ## 4. Human Gate and install status
 
-AO-23 is recorded in [its historical evidence](../agent-runs/ao-23-preinstall-delta-final-acceptance.md), but its release-readiness conclusion is superseded by the missing-wrapper finding. AO-26 will refresh Final Terra Acceptance after AO-24/AO-25. The only predeclared operation gate remains AO-16's real-host LaunchAgent registration/enabling. The three runtime Human Gate categories are exactly those in the canonical delta HANDOFF. No planning, implementation, pilot, review, or final-acceptance task called `launchctl`, `packaging/launchd/manage.sh install`, or any host-install command.
+AO-23 is recorded in [its historical evidence](../agent-runs/ao-23-preinstall-delta-final-acceptance.md), and AO-26's refreshed result is recorded in [the AO-26 evidence](../agent-runs/ao-26-preinstall-delta-final-acceptance.md). The only remaining operation gate is AO-16's real-host LaunchAgent registration/enabling. The three runtime Human Gate categories are exactly those in the canonical delta HANDOFF. No planning, implementation, pilot, review, or final-acceptance task called `launchctl`, `packaging/launchd/manage.sh install`, or any host-install command.

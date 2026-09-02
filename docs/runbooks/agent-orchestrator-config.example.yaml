@@ -1,0 +1,11 @@
+version: 1
+pilot:
+  targetRepo: /Users/eita/projects/slot
+  baseBranch: main
+  manifestPath: tasks/agent-orchestrator-preinstall-delta.yaml
+  boardPath: docs/task-boards/2026-09-02-agent-orchestrator-preinstall-delta.md
+stateRoot: /Users/eita/.local/state/agent-orchestrator
+pollIntervalMs: 30000
+maxLunaWorkers: 2
+maxResumeAttempts: 2
+retryIntervalMs: 300000

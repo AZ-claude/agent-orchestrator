@@ -45,18 +45,19 @@ install a LaunchAgent as part of normal daemon startup.
 
 AO-16 packaging is in `packaging/launchd`. The template is rendered with
 operator-supplied absolute paths and validated with `plutil` before loading.
-`src/cli/cli.ts` currently provides the command dispatcher as a library; it is
-not by itself an executable daemon entrypoint. `AO_LAUNCHD_CLI` must therefore
-point to an existing operator-provided wrapper that wires concrete
-`CliOperations` and invokes `runCli`, or to a separately packaged executable.
-Do not point LaunchAgent at `dist/src/cli/cli.js` without that wrapper.
+The repository-owned executable entrypoint is `bin/agent-orchestrator.mjs`.
+`AO_LAUNCHD_CLI` must point to its absolute path; it composes the concrete
+`CliOperations`. Do not use an external wrapper or point LaunchAgent at
+`dist/src/cli/cli.js` directly.
 The following commands are explicit host mutations and must be run by an
 operator on the intended macOS host; they are never called by the daemon:
 
 ```sh
 export AO_LAUNCHD_WORKDIR=/absolute/path/to/agent-orchestrator
-export AO_LAUNCHD_CLI=/absolute/path/to/agent-orchestrator-cli.mjs
+export AO_LAUNCHD_CLI=/absolute/path/to/agent-orchestrator/bin/agent-orchestrator.mjs
 export AO_LAUNCHD_NODE=/absolute/path/to/node
+export AO_CONFIG_PATH=/absolute/path/to/agent-orchestrator/docs/runbooks/agent-orchestrator-config.example.yaml
+packaging/launchd/preflight.sh
 packaging/launchd/manage.sh install
 packaging/launchd/manage.sh status
 packaging/launchd/manage.sh uninstall
