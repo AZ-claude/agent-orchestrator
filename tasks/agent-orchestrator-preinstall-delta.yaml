@@ -24,7 +24,7 @@ workerCompletionContract:
 tasks:
   - id: AO-17
     title: Canonical delta contract, manifest, and durable state
-    state: PLANNED
+    state: DONE
     dependsOn: []
     parallel: SAFE
     humanGate: false
@@ -36,7 +36,7 @@ tasks:
     invariants: [No checkpoint secret or private reasoning, runtime state cannot mutate board meaning, legacy v1 manifest remains backward compatible.]
   - id: AO-18
     title: Deterministic reviewed-HEAD merge gates and Git adapter
-    state: PLANNED
+    state: DONE
     dependsOn: []
     parallel: SAFE
     humanGate: false
@@ -48,7 +48,7 @@ tasks:
     invariants: [No semantic inference, no dirty or unreviewed merge, durable machine-verifiable merge evidence.]
   - id: AO-19
     title: Independent Reviewer, bounded Primary REWORK, and fresh Recovery Worker
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-17, AO-18]
     parallel: SAFE
     humanGate: false
@@ -60,7 +60,7 @@ tasks:
     invariants: [No reviewer history/code edit, implementation failure is not automatically PLAN_CONFLICT, Worker/Reviewer do not write board meaning.]
   - id: AO-20
     title: Confirmed PLAN_CONFLICT routing, merge barrier, reconciliation, and lifecycle cleanup
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-17, AO-19]
     parallel: EXCLUSIVE
     humanGate: false
@@ -72,7 +72,7 @@ tasks:
     invariants: [Daemon does not judge claims, no global worker stop, REQUIREMENT_CONFLICT is Human Gate only.]
   - id: AO-21
     title: Pre-install runtime integration, authority enforcement, and operator contract
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-17, AO-18, AO-19, AO-20]
     parallel: EXCLUSIVE
     humanGate: false
@@ -84,7 +84,7 @@ tasks:
     invariants: [Daemon has no semantic judgment, reviewer APPROVE alone cannot merge, LaunchAgent stays operator-only.]
   - id: AO-22
     title: Non-production pre-install delta pilot and durable evidence
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-17, AO-18, AO-19, AO-20, AO-21]
     parallel: EXCLUSIVE
     humanGate: false
@@ -96,7 +96,7 @@ tasks:
     invariants: [No external host install, production mutation, or live operational slot task.]
   - id: AO-23
     title: Final Terra Acceptance of the pre-install delta
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-22]
     parallel: EXCLUSIVE
     humanGate: false

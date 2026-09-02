@@ -5,7 +5,7 @@ Canonical requirements: [pre-install delta HANDOFF](../HANDOFF_2026-09-02_AGENT_
 Legacy boundary: [v1 requirements](../HANDOFF_2026-08-31_AGENT_ORCHESTRATOR_V1_REQUIREMENTS.md), [v1 design](../DESIGN_2026-08-31_AGENT_ORCHESTRATOR_V1.md)  
 Machine-readable plan: [`tasks/agent-orchestrator-preinstall-delta.yaml`](../../tasks/agent-orchestrator-preinstall-delta.yaml)
 
-Status: **PLANNED — AO-01 through AO-16 history is preserved; no pre-install delta implementation has started.**
+Status: **DONE — AO-17 through AO-23 are implemented, independently reviewed, and Final Terra Acceptance has passed. The only remaining action is the existing AO-16 operator Human Gate: real-host LaunchAgent installation.**
 
 ## 0. Authority, boundary, and common acceptance
 
@@ -32,7 +32,7 @@ AO-18 (deterministic merge gates) ───────────────�
 
 ### AO-17 — Canonical delta contract, manifest, and durable state
 
-- State: PLANNED; dependencies: none; parallel: SAFE; Human Gate: none.
+- State: DONE; dependencies: none; parallel: SAFE; Human Gate: none.
 - Scope / allowed paths: `src/config/**`, `src/manifest/**`, `src/checkpoint/**`, `prompts/luna-implementation-task.md`, `test/config.test.ts`, `test/manifest.test.ts`, `test/checkpoint.test.ts`.
 - Non-scope: controller routing, Git merge commands, scheduler policy, Qwen/Ollama/provider router, production state, and retroactive edits to AO-01–AO-16.
 - Completion / acceptance: accepts a versioned pre-install delta manifest and task-level free-text `assumptions`/`invariants`; records only durable, non-secret lifecycle/review/recovery/claim facts needed by later tasks; represents Primary versus fresh Recovery Worker without a provider-selection framework; rejects unknown/unsafe schema data fail-closed.
@@ -42,7 +42,7 @@ AO-18 (deterministic merge gates) ───────────────�
 
 ### AO-18 — Deterministic reviewed-HEAD merge gates and Git adapter
 
-- State: PLANNED; dependencies: none; parallel: SAFE; Human Gate: none.
+- State: DONE; dependencies: none; parallel: SAFE; Human Gate: none.
 - Scope / allowed paths: `src/git/**`, `src/validation/**`, `test/git.test.ts`, `test/validation.test.ts`.
 - Non-scope: reviewer semantic decision, scheduler policy, GitHub Issue projection, generic merge queue, production branch mutation outside disposable test remotes.
 - Completion / acceptance: provides an explicit, testable daemon-only merge operation that follows target-repository Git rules and proceeds only after tests, validation, scope/unexpected-diff, clean worktree, pushed branch, dependency/base consistency, reviewed-HEAD equality, no unresolved Human Gate, and no merge barrier all pass; a changed reviewed HEAD refuses merge/close.
@@ -52,7 +52,7 @@ AO-18 (deterministic merge gates) ───────────────�
 
 ### AO-19 — Independent Reviewer, bounded Primary REWORK, and fresh Recovery Worker
 
-- State: PLANNED; dependencies: AO-17, AO-18; parallel: SAFE; Human Gate: none.
+- State: DONE; dependencies: AO-17, AO-18; parallel: SAFE; Human Gate: none.
 - Scope / allowed paths: `src/luna/**`, `src/controller/**`, `prompts/luna-implementation-task.md`, `test/luna.test.ts`, `test/controller.test.ts`, `test/fixtures/codex/**`.
 - Non-scope: new LLM provider integration, model/task router, Terra normal review, board/manifest editing, scheduler/barrier implementation, production dispatch.
 - Completion / acceptance: replaces Terra normal-task review with a code-changing-forbidden Independent Reviewer contract; routes ordinary REWORK to the same Primary session with maximum three cycles; detects two consecutive equal normalized findings/test failures or simple documented diff oscillation as early STUCK; retires the old Primary and starts one fresh Luna Recovery session from durable evidence; requires the same reviewer and deterministic gates for Recovery; classifies Recovery exhaustion as PLAN_CONFLICT suspicion or pure implementation `BLOCKED_HUMAN`, never as Terra code-fix work.
@@ -62,7 +62,7 @@ AO-18 (deterministic merge gates) ───────────────�
 
 ### AO-20 — Confirmed PLAN_CONFLICT routing, merge barrier, reconciliation, and lifecycle cleanup
 
-- State: PLANNED; dependencies: AO-17, AO-19; parallel: EXCLUSIVE; Human Gate: none.
+- State: DONE; dependencies: AO-17, AO-19; parallel: EXCLUSIVE; Human Gate: none.
 - Scope / allowed paths: `src/scheduler/**`, `src/reconcile/**`, `src/checkpoint/**`, `src/github/**`, `test/scheduler.test.ts`, `test/reconcile.test.ts`, `test/checkpoint.test.ts`, `test/github.test.ts`.
 - Non-scope: Terra Plan Revision content, requirement rewrites, controller semantic review implementation, complex impact-analysis/lock/queue framework, actual external Issue mutation beyond fixture coverage.
 - Completion / acceptance: persists and routes the required structured PLAN_CONFLICT claim; only an Independent Reviewer confirmation activates Plan Revision state; activates a simple global merge barrier, pauses only affected task/downstream dependencies, continues unrelated SAFE execution, and refuses all merges while active; maintains `ACTIVE`, `RESUMABLE`, `RETIRED`, and safe cleanup semantics; cleans reviewer sessions after durable evidence and task sessions only after close/takeover/revision retirement, never RESUMABLE sessions; accepts an explicit revision resume/restart instruction and re-synchronizes board/manifest facts deterministically.
@@ -72,7 +72,7 @@ AO-18 (deterministic merge gates) ───────────────�
 
 ### AO-21 — Pre-install runtime integration, authority enforcement, and operator contract
 
-- State: PLANNED; dependencies: AO-17, AO-18, AO-19, AO-20; parallel: EXCLUSIVE; Human Gate: none.
+- State: DONE; dependencies: AO-17, AO-18, AO-19, AO-20; parallel: EXCLUSIVE; Human Gate: none.
 - Scope / allowed paths: `src/cli/**`, `src/controller/**`, `src/logging/**`, `docs/runbooks/agent-orchestrator.md`, `prompts/luna-implementation-task.md`, `test/cli.test.ts`, `test/controller.test.ts`.
 - Non-scope: host LaunchAgent installation, packaging changes, production/deploy/Scheduler mutation, final acceptance evidence, provider routing, dashboard/UI.
 - Completion / acceptance: wires the planned contracts into normal daemon flow without an LLM call in polling/scheduling/validation/merge decision; removes normal Terra review/merge invocation; documents and enforces the authority matrix, Human Gate taxonomy, deterministic daemon auto-merge/close/unlock, cleanup, and Plan Revision barrier behavior; leaves Terra callable only for Planning, reviewer-confirmed Plan Revision, and final acceptance.
@@ -82,7 +82,7 @@ AO-18 (deterministic merge gates) ───────────────�
 
 ### AO-22 — Non-production pre-install delta pilot and durable evidence
 
-- State: PLANNED; dependencies: AO-17, AO-18, AO-19, AO-20, AO-21; parallel: EXCLUSIVE; Human Gate: none.
+- State: DONE; dependencies: AO-17, AO-18, AO-19, AO-20, AO-21; parallel: EXCLUSIVE; Human Gate: none.
 - Scope / allowed paths: `scripts/pilot/**`, `test/pilot.test.ts`, `docs/agent-runs/**`, `docs/runbooks/agent-orchestrator.md`.
 - Non-scope: production `/slot` data/runtime/Scheduler, LaunchAgent install/load, source behavior changes, public/deploy actions.
 - Completion / acceptance: extends disposable fixture evidence for all 2026-09-02 acceptance points: independent approval/daemon merge gates, reviewed-head refusal, bounded rework/early STUCK/fresh recovery, recovery classification, confirmed PLAN_CONFLICT/barrier/Safe continuation/resync, lifecycle cleanup/resumable retention, authority/Human-Gate behavior, and unchanged v1 pilot safety boundary.
@@ -92,7 +92,7 @@ AO-18 (deterministic merge gates) ───────────────�
 
 ### AO-23 — Final Terra Acceptance of the pre-install delta
 
-- State: PLANNED; dependencies: AO-22; parallel: EXCLUSIVE; Human Gate: none unless result is `REQUIREMENT_CONFLICT`.
+- State: DONE / PASS; dependencies: AO-22; parallel: EXCLUSIVE; Human Gate: none unless result is `REQUIREMENT_CONFLICT`.
 - Scope / allowed paths: `docs/agent-runs/**`, `docs/task-boards/**`, `test/final-acceptance.test.ts`.
 - Non-scope: code fixes, daemon configuration/operation, manifest/DAG changes except creation of a new corrective task by Terra after a `REWORK`, actual LaunchAgent install.
 - Completion / acceptance: Terra validates the merged whole product against the canonical 2026-09-02 HANDOFF and records PASS, REWORK-task creation, or REQUIREMENT_CONFLICT. A discovered code defect produces a new scoped task returning through Worker -> Independent Reviewer -> deterministic daemon merge; Terra does not edit code.
@@ -115,4 +115,4 @@ AO-18 (deterministic merge gates) ───────────────�
 
 ## 4. Human Gate and install status
 
-The only predeclared operation gate remains AO-16's real-host LaunchAgent registration/enabling. The three runtime Human Gate categories are exactly those in the canonical delta HANDOFF. This planning task did not call `launchctl`, `packaging/launchd/manage.sh install`, or any host-install command.
+Final Terra Acceptance is recorded in [AO-23 evidence](../agent-runs/ao-23-preinstall-delta-final-acceptance.md). The only predeclared operation gate remains AO-16's real-host LaunchAgent registration/enabling. The three runtime Human Gate categories are exactly those in the canonical delta HANDOFF. No planning, implementation, pilot, review, or final-acceptance task called `launchctl`, `packaging/launchd/manage.sh install`, or any host-install command.
