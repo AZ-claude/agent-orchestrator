@@ -25,6 +25,31 @@ test("default config is a single /slot pilot and is independently cloned", () =>
   assert.notStrictEqual(first.pilot, second.pilot);
 });
 
+test("worker config defaults to cloud and validates explicit local/auto choices", () => {
+  const base = defaultPilotConfig();
+  assert.equal(configSchema.parse(base).worker, undefined);
+  const local = {
+    mode: "local",
+    primary: "local",
+    recovery: "local",
+    local: {
+      executable: "/tmp/opencode",
+      model: "ollama/qwen3.6:35b",
+      contextTokens: 262144,
+      workdir: "/tmp/worktree",
+      ollamaBaseUrl: "http://127.0.0.1:11434",
+      configPath: "/tmp/opencode.jsonc",
+    },
+  } as const;
+  const parsed = configSchema.parse({ ...base, worker: local });
+  assert.deepEqual(parsed.worker, local);
+  assert.equal(configSchema.parse({ ...base, worker: { ...local, mode: "auto" } }).worker?.mode, "auto");
+  assert.equal(configSchema.safeParse({ ...base, worker: { ...local, mode: "cloud" } }).success, false);
+  assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: undefined } }).success, false);
+  assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: { ...local.local, contextTokens: 32768 } } }).success, false);
+  assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: { ...local.local, ollamaBaseUrl: "http://user:pass@host:11434" } } }).success, false);
+});
+
 test("config schema rejects a multi-repo-shaped config and unknown fields", () => {
   const result = configSchema.safeParse({
     ...defaultPilotConfig(),

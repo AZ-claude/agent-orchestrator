@@ -1,0 +1,43 @@
+{
+  "source": "read-only local inspection on 2026-09-03 JST",
+  "opencode": {
+    "path": "/Users/eita/.opencode/bin/opencode",
+    "version": "1.18.23",
+    "newInvocation": ["run", "--format", "json", "--model", "provider/model", "message"],
+    "resumeInvocation": ["run", "--format", "json", "--model", "provider/model", "--session", "session-id", "message"],
+    "shell": false,
+    "structuredOutput": "--format json",
+    "sessionCapture": "run output is JSON events; session ID is available when emitted",
+    "termination": "child process termination is controlled by the parent process",
+    "logs": "--print-logs is supported; repository adapter must retain only non-secret machine evidence",
+    "availability": "installed; no workload was started"
+  },
+  "ollama": {
+    "path": "/opt/homebrew/bin/ollama",
+    "version": "0.32.15",
+    "endpoint": "http://127.0.0.1:11434",
+    "availability": "unavailable: local endpoint connection was not permitted/reachable during inspection",
+    "mutationCommandsNotRun": ["serve", "pull", "create", "push", "rm", "stop"]
+  },
+  "configuredLocalStack": {
+    "model": "qwen3.6:35b",
+    "contextTokens": 262144,
+    "opencodeConfig": "~/.config/opencode/opencode.jsonc",
+    "ollamaConfig": "~/.ollama/config.json",
+    "contextAuthority": "OpenCode provider model limit.context in opencode.jsonc; Ollama model availability must still be read-only validated",
+    "handoffModelMismatch": "canonical handoff names Qwen3.8-27B, while inspected operator config names qwen3.6:35b; no alias was inferred"
+  },
+  "unavailableFacts": [
+    "No real OpenCode JSON event/session output was captured because Ollama was unavailable.",
+    "No real PID/exit/crash or safe-termination workload observation was captured.",
+    "No real rate/usage/quota signal was observed; adapter must recognize only explicit documented fields.",
+    "Real Qwen pilot is deferred to AO-34 and is not declared PASS by this fixture."
+  ],
+  "safety": {
+    "credentials": "not recorded",
+    "privateConversation": "not recorded",
+    "launchAgentMutation": false,
+    "productionMutation": false,
+    "contextDowngrade": false
+  }
+}

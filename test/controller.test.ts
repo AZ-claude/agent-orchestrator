@@ -52,3 +52,20 @@ test("authority matrix protects plan meaning and normal merge", () => {
   assert.doesNotThrow(() => assertCanChangePlan("terra"));
   assert.throws(() => assertCanChangePlan("worker"), /cannot perform/);
 });
+
+test("local implementation uses the same independent reviewer and deterministic merge gates", async () => {
+  const resumed: string[] = [];
+  let reviewed = 0;
+  const result = await new ReviewCloseController({
+    validate: async () => ({ ...packet, workerRole: "primary", workerProvider: "local", workerAdapter: "opencode", localModel: "ollama/qwen3.6:35b", processOutcome: "success" }),
+    reviewer: { review: async () => { reviewed += 1; return reviewed === 1 ? { result: "REWORK", reason: "local fixture finding" } : "APPROVE"; } },
+    mergeReviewed: async (reviewPacket) => { assert.equal(reviewPacket.workerProvider, "local"); return { pass: true }; },
+    resumeWorker: async (provider, reason) => { resumed.push(`${provider}:${reason}`); },
+    providerForRole: () => "local",
+    setState: async () => undefined,
+    closeIssue: async () => undefined,
+  }).processWorkerDone();
+  assert.equal(result.status, "approved");
+  assert.deepEqual(resumed, ["local:local fixture finding"]);
+  assert.equal(reviewed, 2);
+});

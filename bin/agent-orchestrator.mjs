@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 
 export async function main(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
   if (argv[0] === "--help" || argv[0] === "-h") {
-    process.stdout.write("usage: agent-orchestrator <bootstrap|run-once|daemon|reconcile|status>\n");
+    process.stdout.write("usage: agent-orchestrator <bootstrap|run-once|daemon|reconcile|status|preflight>\n");
     return;
   }
   const [{ runCli }, { createCliOperations }] = await Promise.all([

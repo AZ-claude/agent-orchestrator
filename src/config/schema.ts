@@ -35,6 +35,14 @@ export type ReviewResultKind = (typeof REVIEW_RESULTS)[number];
 export const WORKER_ROLES = ["primary", "recovery"] as const;
 export type WorkerRole = (typeof WORKER_ROLES)[number];
 
+export const WORKER_MODES = ["cloud", "local", "auto"] as const;
+export type WorkerMode = (typeof WORKER_MODES)[number];
+
+export const WORKER_PROVIDERS = ["cloud", "local"] as const;
+export type WorkerProvider = (typeof WORKER_PROVIDERS)[number];
+export const WORKER_OUTCOMES = ["success", "availability-limit", "crash", "failed", "spawn-error"] as const;
+export type WorkerOutcome = (typeof WORKER_OUTCOMES)[number];
+
 export const SESSION_LIFECYCLES = ["ACTIVE", "RESUMABLE", "RETIRED", "CLEANUP"] as const;
 export type SessionLifecycle = (typeof SESSION_LIFECYCLES)[number];
 
@@ -66,6 +74,25 @@ export interface PilotConfig {
   readonly maxLunaWorkers: number;
   readonly maxResumeAttempts: number;
   readonly retryIntervalMs: number;
+  /** Omitted means the backwards-compatible cloud-only route. */
+  readonly worker?: WorkerConfig;
+}
+
+export interface LocalWorkerConfig {
+  readonly executable: string;
+  readonly model: string;
+  readonly contextTokens: 262144;
+  readonly workdir: string;
+  readonly ollamaBaseUrl: string;
+  /** Read-only path to the OpenCode configuration used by preflight. */
+  readonly configPath: string;
+}
+
+export interface WorkerConfig {
+  readonly mode: WorkerMode;
+  readonly primary: WorkerProvider;
+  readonly recovery: WorkerProvider;
+  readonly local?: LocalWorkerConfig;
 }
 
 export interface ManifestHandoff {
@@ -99,6 +126,13 @@ export interface RecoveryFact {
   readonly takeoverCount: number;
   readonly status: "not-started" | "active" | "exhausted" | "approved";
   readonly attemptedFixSummary?: string;
+}
+
+export interface ProviderFallbackFact {
+  readonly from: "cloud";
+  readonly to: "local";
+  readonly reason: "RATE_LIMIT" | "USAGE_LIMIT" | "QUOTA_LIMIT";
+  readonly latched: true;
 }
 
 export interface ManifestTask {
@@ -155,6 +189,15 @@ export interface Checkpoint {
   readonly review?: ReviewFact;
   readonly recovery?: RecoveryFact;
   readonly planConflict?: PlanConflictClaim;
+  readonly runId?: string;
+  readonly workerProvider?: WorkerProvider;
+  readonly workerAdapter?: "codex/luna" | "opencode";
+  readonly workerMode?: WorkerMode;
+  readonly configuredPrimary?: WorkerProvider;
+  readonly configuredRecovery?: WorkerProvider;
+  readonly localModel?: string;
+  readonly processOutcome?: WorkerOutcome;
+  readonly providerFallback?: ProviderFallbackFact;
 }
 
 export type ReviewResult =
@@ -298,7 +341,7 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
     issues.push(issue(path, "must be an object"));
     return undefined;
   }
-  rejectUnknown(value, ["version", "pilot", "stateRoot", "pollIntervalMs", "maxLunaWorkers", "maxResumeAttempts", "retryIntervalMs"], path, issues);
+  rejectUnknown(value, ["version", "pilot", "stateRoot", "pollIntervalMs", "maxLunaWorkers", "maxResumeAttempts", "retryIntervalMs", "worker"], path, issues);
   const version = requiredLiteral(value, "version", 1, path, issues);
   const pilot = requiredRecord(value, "pilot", path, issues);
   const stateRoot = requiredAbsolutePathOutside(value, "stateRoot", PILOT_TARGET_REPO, path, issues);
@@ -306,6 +349,7 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
   const maxLunaWorkers = requiredPositiveInteger(value, "maxLunaWorkers", path, issues);
   const maxResumeAttempts = requiredNonNegativeInteger(value, "maxResumeAttempts", path, issues);
   const retryIntervalMs = requiredPositiveInteger(value, "retryIntervalMs", path, issues);
+  const worker = value.worker === undefined ? null : validateWorkerConfig(value.worker, `${path}.worker`, issues);
 
   if (pilot) {
     rejectUnknown(pilot, ["targetRepo", "baseBranch", "manifestPath", "boardPath"], `${path}.pilot`, issues);
@@ -325,9 +369,45 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
     pollIntervalMs !== undefined &&
     maxLunaWorkers !== undefined &&
     maxResumeAttempts !== undefined &&
-    retryIntervalMs !== undefined
+    retryIntervalMs !== undefined &&
+    worker !== undefined
   ) {
-    return { version, pilot: { targetRepo, baseBranch, manifestPath, boardPath }, stateRoot, pollIntervalMs, maxLunaWorkers, maxResumeAttempts, retryIntervalMs };
+    return { version, pilot: { targetRepo, baseBranch, manifestPath, boardPath }, stateRoot, pollIntervalMs, maxLunaWorkers, maxResumeAttempts, retryIntervalMs, ...(worker === null ? {} : { worker }) };
+  }
+  return undefined;
+}
+
+function validateWorkerConfig(value: unknown, path: string, issues: ValidationIssue[]): WorkerConfig | null | undefined {
+  if (value === undefined) return null;
+  if (!isRecord(value)) { issues.push(issue(path, "must be an object")); return undefined; }
+  rejectUnknown(value, ["mode", "primary", "recovery", "local"], path, issues);
+  const mode = requiredEnum(value, "mode", WORKER_MODES, path, issues);
+  const primary = requiredEnum(value, "primary", WORKER_PROVIDERS, path, issues);
+  const recovery = requiredEnum(value, "recovery", WORKER_PROVIDERS, path, issues);
+  const local = value.local === undefined ? null : validateLocalWorkerConfig(value.local, `${path}.local`, issues);
+  if ((mode === "local" || mode === "auto" || primary === "local" || recovery === "local") && local === null) {
+    issues.push(issue(`${path}.local`, "is required when local execution can be selected"));
+  }
+  if (mode === "cloud" && (primary !== "cloud" || recovery !== "cloud")) issues.push(issue(path, "cloud mode requires cloud primary and recovery providers"));
+  if (mode === "local" && (primary !== "local" || recovery !== "local")) issues.push(issue(path, "local mode requires local primary and recovery providers"));
+  if (mode !== undefined && primary !== undefined && recovery !== undefined && local !== undefined && !issuesForPath(issues, path)) {
+    return { mode, primary, recovery, ...(local === null ? {} : { local }) };
+  }
+  return undefined;
+}
+
+function validateLocalWorkerConfig(value: unknown, path: string, issues: ValidationIssue[]): LocalWorkerConfig | null | undefined {
+  if (value === undefined) return null;
+  if (!isRecord(value)) { issues.push(issue(path, "must be an object")); return undefined; }
+  rejectUnknown(value, ["executable", "model", "contextTokens", "workdir", "ollamaBaseUrl", "configPath"], path, issues);
+  const executable = requiredAbsolutePath(value, "executable", path, issues);
+  const model = requiredString(value, "model", path, issues);
+  const contextTokens = requiredLiteral(value, "contextTokens", 262144, path, issues);
+  const workdir = requiredAbsolutePath(value, "workdir", path, issues);
+  const ollamaBaseUrl = requiredLocalUrl(value, "ollamaBaseUrl", path, issues);
+  const configPath = requiredAbsolutePath(value, "configPath", path, issues);
+  if (executable !== undefined && model !== undefined && contextTokens !== undefined && workdir !== undefined && ollamaBaseUrl !== undefined && configPath !== undefined && !issuesForPath(issues, path)) {
+    return { executable, model, contextTokens, workdir, ollamaBaseUrl, configPath };
   }
   return undefined;
 }
@@ -438,7 +518,7 @@ function validateCheckpoint(value: unknown, path: string, issues: ValidationIssu
     issues.push(issue(path, "must be an object"));
     return undefined;
   }
-  rejectUnknown(value, ["issueNumber", "taskId", "phase", "attempt", "sessionId", "branch", "worktree", "pid", "lastHead", "retryAt", "workerRole", "lifecycle", "review", "recovery", "planConflict"], path, issues);
+  rejectUnknown(value, ["issueNumber", "taskId", "phase", "attempt", "sessionId", "branch", "worktree", "pid", "lastHead", "retryAt", "workerRole", "lifecycle", "review", "recovery", "planConflict", "runId", "workerProvider", "workerAdapter", "workerMode", "configuredPrimary", "configuredRecovery", "localModel", "processOutcome", "providerFallback"], path, issues);
   const issueNumber = requiredPositiveInteger(value, "issueNumber", path, issues);
   const taskId = requiredString(value, "taskId", path, issues);
   const phase = requiredEnum(value, "phase", CHECKPOINT_PHASES, path, issues);
@@ -454,8 +534,17 @@ function validateCheckpoint(value: unknown, path: string, issues: ValidationIssu
   const review = optionalReviewFact(value.review, `${path}.review`, issues);
   const recovery = optionalRecoveryFact(value.recovery, `${path}.recovery`, issues);
   const planConflict = value.planConflict === undefined ? null : validatePlanConflictClaim(value.planConflict, `${path}.planConflict`, issues);
-  if (issueNumber !== undefined && taskId !== undefined && phase !== undefined && attempt !== undefined && sessionId !== undefined && branch !== undefined && worktree !== undefined && pid !== undefined && lastHead !== undefined && retryAt !== undefined && workerRole !== undefined && lifecycle !== undefined && review !== undefined && recovery !== undefined && planConflict !== undefined) {
-    return { issueNumber, taskId, phase, attempt, sessionId, branch, worktree, pid, lastHead, retryAt, ...(workerRole === null ? {} : { workerRole }), ...(lifecycle === null ? {} : { lifecycle }), ...(review === null ? {} : { review }), ...(recovery === null ? {} : { recovery }), ...(planConflict === null ? {} : { planConflict }) };
+  const runId = optionalSafeString(value, "runId", path, issues);
+  const workerProvider = optionalEnum(value, "workerProvider", WORKER_PROVIDERS, path, issues);
+  const workerAdapter = optionalEnum(value, "workerAdapter", ["codex/luna", "opencode"] as const, path, issues);
+  const workerMode = optionalEnum(value, "workerMode", WORKER_MODES, path, issues);
+  const configuredPrimary = optionalEnum(value, "configuredPrimary", WORKER_PROVIDERS, path, issues);
+  const configuredRecovery = optionalEnum(value, "configuredRecovery", WORKER_PROVIDERS, path, issues);
+  const localModel = optionalSafeString(value, "localModel", path, issues);
+  const processOutcome = optionalEnum(value, "processOutcome", WORKER_OUTCOMES, path, issues);
+  const providerFallback = optionalProviderFallback(value.providerFallback, `${path}.providerFallback`, issues);
+  if (issueNumber !== undefined && taskId !== undefined && phase !== undefined && attempt !== undefined && sessionId !== undefined && branch !== undefined && worktree !== undefined && pid !== undefined && lastHead !== undefined && retryAt !== undefined && workerRole !== undefined && lifecycle !== undefined && review !== undefined && recovery !== undefined && planConflict !== undefined && runId !== undefined && workerProvider !== undefined && workerAdapter !== undefined && workerMode !== undefined && configuredPrimary !== undefined && configuredRecovery !== undefined && localModel !== undefined && processOutcome !== undefined && providerFallback !== undefined) {
+    return { issueNumber, taskId, phase, attempt, sessionId, branch, worktree, pid, lastHead, retryAt, ...(workerRole === null ? {} : { workerRole }), ...(lifecycle === null ? {} : { lifecycle }), ...(review === null ? {} : { review }), ...(recovery === null ? {} : { recovery }), ...(planConflict === null ? {} : { planConflict }), ...(runId === null ? {} : { runId }), ...(workerProvider === null ? {} : { workerProvider }), ...(workerAdapter === null ? {} : { workerAdapter }), ...(workerMode === null ? {} : { workerMode }), ...(configuredPrimary === null ? {} : { configuredPrimary }), ...(configuredRecovery === null ? {} : { configuredRecovery }), ...(localModel === null ? {} : { localModel }), ...(processOutcome === null ? {} : { processOutcome }), ...(providerFallback === null ? {} : { providerFallback }) };
   }
   return undefined;
 }
@@ -526,6 +615,18 @@ function optionalRecoveryFact(value: unknown, path: string, issues: ValidationIs
   const status = requiredEnum(value, "status", ["not-started", "active", "exhausted", "approved"] as const, path, issues);
   const attemptedFixSummary = optionalSafeString(value, "attemptedFixSummary", path, issues);
   if (takeoverCount !== undefined && status !== undefined && attemptedFixSummary !== undefined) return { takeoverCount, status, ...(attemptedFixSummary === null ? {} : { attemptedFixSummary }) };
+  return undefined;
+}
+
+function optionalProviderFallback(value: unknown, path: string, issues: ValidationIssue[]): ProviderFallbackFact | null | undefined {
+  if (value === undefined) return null;
+  if (!isRecord(value)) { issues.push(issue(path, "must be an object")); return undefined; }
+  rejectUnknown(value, ["from", "to", "reason", "latched"], path, issues);
+  const from = requiredLiteral(value, "from", "cloud", path, issues);
+  const to = requiredLiteral(value, "to", "local", path, issues);
+  const reason = requiredEnum(value, "reason", ["RATE_LIMIT", "USAGE_LIMIT", "QUOTA_LIMIT"] as const, path, issues);
+  const latched = requiredLiteral(value, "latched", true, path, issues);
+  if (from !== undefined && to !== undefined && reason !== undefined && latched !== undefined && !issuesForPath(issues, path)) return { from, to, reason, latched };
   return undefined;
 }
 
@@ -620,6 +721,22 @@ function requiredAbsolutePath(value: Record<string, unknown>, key: string, path:
   return candidate;
 }
 
+function requiredLocalUrl(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): string | undefined {
+  const candidate = requiredString(value, key, path, issues);
+  if (candidate === undefined) return undefined;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("protocol");
+    if (url.username !== "" || url.password !== "") throw new Error("credentials");
+    if (url.pathname !== "" && url.pathname !== "/") throw new Error("path");
+    if (!["127.0.0.1", "localhost", "::1"].includes(url.hostname)) throw new Error("non-local host");
+  } catch {
+    issues.push(issue(`${path}.${key}`, "must be a local HTTP(S) endpoint without credentials or a path"));
+    return undefined;
+  }
+  return candidate.replace(/\/$/, "");
+}
+
 function requiredPilotTarget(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): string | undefined {
   const candidate = requiredAbsolutePath(value, key, path, issues);
   if (candidate !== undefined && candidate !== PILOT_TARGET_REPO) {
@@ -665,7 +782,7 @@ function requiredBoolean(value: Record<string, unknown>, key: string, path: stri
   return candidate;
 }
 
-function requiredLiteral<T extends string | number>(value: Record<string, unknown>, key: string, expected: T, path: string, issues: ValidationIssue[]): T | undefined {
+function requiredLiteral<T extends string | number | boolean>(value: Record<string, unknown>, key: string, expected: T, path: string, issues: ValidationIssue[]): T | undefined {
   if (value[key] !== expected) {
     issues.push(issue(`${path}.${key}`, `must equal ${String(expected)}`));
     return undefined;

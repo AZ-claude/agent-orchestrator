@@ -26,14 +26,14 @@ require_absolute_existing_file AO_CONFIG_PATH "$CONFIG_PATH"
 "$NODE_BIN" --check "$CLI_PATH"
 help=$("$NODE_BIN" "$CLI_PATH" --help)
 case "$help" in
-  *"bootstrap"*"run-once"*"daemon"*"reconcile"*"status"*) ;;
+  *"bootstrap"*"run-once"*"daemon"*"reconcile"*"status"*"preflight"*) ;;
   *) echo "entrypoint does not expose the required command shape" >&2; exit 1;;
 esac
 # status is intentionally read-only and validates the canonical config and
 # versioned delta manifest without calling gh, git, launchctl, or an LLM.
 status=$("$NODE_BIN" "$CLI_PATH" status)
 case "$status" in
-  *"agent-orchestrator-preinstall-delta"*"version"*) ;;
+  *"agent-orchestrator-preinstall-delta"*"version"*|*"agent-orchestrator-qwen-opencode-worker-preinstall-delta"*"version"*) ;;
   *) echo "entrypoint status did not validate the canonical delta" >&2; exit 1;;
 esac
 echo "preflight: PASS (read-only)"

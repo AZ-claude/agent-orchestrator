@@ -8,6 +8,7 @@ import { reconcile } from "../reconcile/index.js";
 import { DeterministicScheduler, schedulerTasks } from "../scheduler/index.js";
 import { CliOperations } from "./cli.js";
 import { PrivacySafeLogger } from "../logging/index.js";
+import { preflightLocalWorker } from "../opencode/index.js";
 
 export interface CliAppOptions {
   readonly cwd?: string;
@@ -23,7 +24,7 @@ export interface LoadedRuntime {
   readonly checkpoints: readonly Checkpoint[];
 }
 
-const DELTA_MANIFEST_ID = "agent-orchestrator-preinstall-delta";
+const SUPPORTED_DELTA_MANIFEST_IDS = new Set(["agent-orchestrator-preinstall-delta", "agent-orchestrator-qwen-opencode-worker-preinstall-delta"]);
 
 /**
  * The concrete daemon composition. It deliberately performs only file reads,
@@ -44,7 +45,7 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
     const manifestPath = resolve(root, config.pilot.manifestPath);
     if (!isWithin(root, manifestPath)) throw new Error("manifest path must remain inside the repository");
     const manifest = parseManifest(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath));
-    if (manifest.version !== 2 || manifest.handoff.id !== DELTA_MANIFEST_ID) throw new Error("entrypoint requires the canonical version 2 pre-install delta manifest");
+    if (manifest.version !== 2 || !SUPPORTED_DELTA_MANIFEST_IDS.has(manifest.handoff.id)) throw new Error("entrypoint requires a supported canonical version 2 pre-install delta manifest");
     const checkpoints = await new CheckpointStore(config.stateRoot).list();
     return { root, config, manifest, checkpoints };
   };
@@ -76,6 +77,14 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
       const runtime = await load();
       logger.info("status", { manifest: runtime.manifest.handoff.id, version: runtime.manifest.version, checkpointCount: runtime.checkpoints.length, targetRepo: runtime.config.pilot.targetRepo });
     },
+    preflight: async () => {
+      const runtime = await load();
+      const local = runtime.config.worker?.local;
+      if (local === undefined) throw new Error("local worker is not configured; preflight is fail-closed");
+      const result = await preflightLocalWorker(local);
+      logger.info("local_preflight", { provider: result.provider, model: result.model, contextTokens: result.contextTokens, pass: result.pass, checks: result.checks });
+      if (!result.pass) throw new Error("local worker preflight failed");
+    },
   };
 }
 
@@ -88,7 +97,7 @@ export async function loadRuntime(options: CliAppOptions = {}): Promise<LoadedRu
   const config = parsePilotConfig(parseDocument(await readFile(configPath, "utf8"), configPath));
   const manifestPath = resolve(cwd, config.pilot.manifestPath);
   const manifest = parseManifest(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath));
-  if (manifest.version !== 2 || manifest.handoff.id !== DELTA_MANIFEST_ID) throw new Error("entrypoint requires the canonical version 2 pre-install delta manifest");
+  if (manifest.version !== 2 || !SUPPORTED_DELTA_MANIFEST_IDS.has(manifest.handoff.id)) throw new Error("entrypoint requires a supported canonical version 2 pre-install delta manifest");
   return { root: cwd, config, manifest, checkpoints: await new CheckpointStore(config.stateRoot).list() };
 }
 

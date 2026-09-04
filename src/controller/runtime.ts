@@ -17,6 +17,6 @@ export class DaemonTaskRuntime {
   }
 
   static durableRecoverySummary(packet: ReviewPacket, role: WorkerRole): string {
-    return JSON.stringify({ taskId: packet.taskId, role, head: packet.head, acceptance: packet.acceptance, testPass: packet.test.pass, scope: packet.scope, clean: packet.clean });
+    return JSON.stringify({ taskId: packet.taskId, role, provider: packet.workerProvider ?? "cloud", adapter: packet.workerAdapter ?? "codex/luna", ...(packet.localModel === undefined ? {} : { localModel: packet.localModel }), ...(packet.providerFallback === undefined ? {} : { providerFallback: packet.providerFallback }), head: packet.head, acceptance: packet.acceptance, testPass: packet.test.pass, scope: packet.scope, clean: packet.clean });
   }
 }

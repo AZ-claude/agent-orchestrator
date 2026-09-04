@@ -22,19 +22,19 @@ workerCompletionContract:
 tasks:
   - id: AO-27
     title: Inspect the actual OpenCode/Ollama local-worker contract
-    state: READY
+    state: DONE
     dependsOn: []
     parallel: EXCLUSIVE
     humanGate: false
     allowedPaths: [docs/agent-runs/**, docs/runbooks/**, test/fixtures/opencode/**]
     nonScope: [product-source-changes, local-stack-install-or-configuration-mutation, real-qwen-workload, credentials, launchagent-operations, generic-provider-research]
-    completion: Record versioned non-secret OpenCode/Ollama invocation, lifecycle, outcome, context-131072 validation, and unavailable-fact evidence without guessing Codex compatibility.
+    completion: Record versioned non-secret OpenCode/Ollama invocation, lifecycle, outcome, context-262144 validation, and unavailable-fact evidence without guessing Codex compatibility.
     test: npm test -- opencode-contract && npm run build && npm run lint
     assumptions: [The local stack or installed compatible documentation is inspectable read-only.]
     invariants: [No shell interpretation, secrets, private reasoning, context downgrade, or host mutation.]
   - id: AO-28
     title: Introduce narrow implementation-Worker contract and retain cloud behavior
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-27]
     parallel: SAFE
     humanGate: false
@@ -46,7 +46,7 @@ tasks:
     invariants: [Legacy cloud default, durable-evidence-only Recovery, reviewer independence, deterministic merge, and non-semantic daemon remain intact.]
   - id: AO-29
     title: Implement the OpenCode local-worker adapter lifecycle
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-28]
     parallel: SAFE
     humanGate: false
@@ -58,7 +58,7 @@ tasks:
     invariants: [Shell disabled, no credentials/private conversation persisted, unsupported resume explicit, Recovery gets durable evidence only.]
   - id: AO-30
     title: Add cloud/local/auto routing and run-local fallback latch
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-29]
     parallel: EXCLUSIVE
     humanGate: false
@@ -69,20 +69,20 @@ tasks:
     assumptions: [AO-28 and AO-29 expose provider-neutral lifecycle observations and durable evidence inputs.]
     invariants: [Fallback consumes no REWORK or Recovery budget, is not PLAN_CONFLICT or healthy-fallback Human Gate, and keeps provider separate from role.]
   - id: AO-31
-    title: Add read-only local-stack preflight for Qwen context 131072
-    state: PLANNED
+    title: Add read-only local-stack preflight for Qwen context 262144
+    state: DONE
     dependsOn: [AO-29]
     parallel: EXCLUSIVE
     humanGate: false
     allowedPaths: [src/opencode/**, src/config/**, src/cli/**, src/logging/**, test/opencode.test.ts, test/config.test.ts, test/entrypoint.test.ts, docs/runbooks/agent-orchestrator.md, docs/runbooks/agent-orchestrator-config.example.yaml]
     nonScope: [install-or-update-opencode-ollama, pull-or-change-model, write-local-model-configuration, task-execution, production-mutation, launchagent-operations]
-    completion: Non-mutating preflight validates OpenCode, Ollama, model, paths, config, and exactly 131072 context; all absent/incompatible facts fail closed with non-secret evidence.
+    completion: Non-mutating preflight validates OpenCode, Ollama, model, paths, config, and exactly 262144 context; all absent/incompatible facts fail closed with non-secret evidence.
     test: npm test -- opencode config entrypoint && npm run build && npm run lint
     assumptions: [AO-27 identifies a supported read-only local-stack inspection mechanism.]
-    invariants: [Model tag remains configuration, preflight never writes-installs-pulls, and 131072 is never substituted.]
+    invariants: [Model tag remains configuration, preflight never writes-installs-pulls, and 262144 is never substituted.]
   - id: AO-32
     title: Integrate routing with durable evidence and unchanged review-merge authority
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-30, AO-31]
     parallel: EXCLUSIVE
     humanGate: false
@@ -94,19 +94,19 @@ tasks:
     invariants: [Terra-only plan authority, reviewer read-only independence, reviewed-HEAD gates, and no secret durable evidence.]
   - id: AO-33
     title: Prove the delta with deterministic fake-adapter acceptance evidence
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-32]
     parallel: EXCLUSIVE
     humanGate: false
     allowedPaths: [test/**, scripts/pilot/**, docs/agent-runs/**, docs/runbooks/agent-orchestrator.md]
     nonScope: [production-slot-runtime-data-or-scheduler, real-model-configuration, source-feature-expansion-outside-test-seams, deploy, launchagent-install-load-register]
-    completion: Disposable fakes prove lifecycle, all modes/role choices, latch/reset, fallback separation, unavailable-local fail-closed, 131072 preflight, durable facts, review-merge authority, and zero host mutation.
+    completion: Disposable fakes prove lifecycle, all modes/role choices, latch/reset, fallback separation, unavailable-local fail-closed, 262144 preflight, durable facts, review-merge authority, and zero host mutation.
     test: npm test && npm run build && npm run lint && packaging/launchd/manage.sh verify
     assumptions: [AO-32 makes all external boundaries injectable without a real host or model.]
     invariants: [No launchctl, manage.sh install, live slot work, or inferred real-stack compatibility.]
   - id: AO-34
     title: Run safe non-production Qwen pilot or record inaccessible-host limitation
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-33]
     parallel: EXCLUSIVE
     humanGate: false
@@ -118,7 +118,7 @@ tasks:
     invariants: [Read-only preflight, no production or external consequential mutation, no LaunchAgent lifecycle, inaccessible hardware is not a code PASS.]
   - id: AO-35
     title: Final Terra Acceptance of the Qwen/OpenCode worker delta
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-34]
     parallel: EXCLUSIVE
     humanGate: false

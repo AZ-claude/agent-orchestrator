@@ -3,7 +3,7 @@ import test from "node:test";
 import { parseCli, runCli } from "../src/cli/index.js";
 import { PrivacySafeLogger } from "../src/logging/index.js";
 
-test("CLI exposes only the five operational commands", () => {
+test("CLI exposes the bounded operational commands", () => {
   assert.equal(parseCli(["bootstrap"]), "bootstrap");
   assert.equal(parseCli(["run-once"]), "run-once");
   assert.throws(() => parseCli(["dashboard"]), /usage/);

@@ -2,10 +2,30 @@ version: 1
 pilot:
   targetRepo: /Users/eita/projects/slot
   baseBranch: main
-  manifestPath: tasks/agent-orchestrator-preinstall-delta.yaml
-  boardPath: docs/task-boards/2026-09-02-agent-orchestrator-preinstall-delta.md
+  manifestPath: tasks/agent-orchestrator-qwen-opencode-worker-preinstall-delta.yaml
+  boardPath: docs/task-boards/2026-09-03-qwen-opencode-worker-preinstall-delta.md
 stateRoot: /Users/eita/.local/state/agent-orchestrator
 pollIntervalMs: 30000
 maxLunaWorkers: 2
 maxResumeAttempts: 2
 retryIntervalMs: 300000
+# Optional worker routing. Omitting this block preserves cloud-only behavior.
+# mode: cloud | local | auto
+# cloud example:
+worker:
+  mode: cloud
+  primary: cloud
+  recovery: cloud
+# To opt into the local path, replace the block above with explicit operator
+# paths/model values. The context value is intentionally exact and fail-closed.
+# worker:
+#   mode: local
+#   primary: local
+#   recovery: local
+#   local:
+#     executable: /Users/eita/.opencode/bin/opencode
+#     model: ollama/qwen3.6:35b
+#     contextTokens: 262144
+#     workdir: /Users/eita/projects/slot
+#     ollamaBaseUrl: http://127.0.0.1:11434
+#     configPath: /Users/eita/.config/opencode/opencode.jsonc

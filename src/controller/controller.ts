@@ -1,4 +1,4 @@
-import { PlanConflictClaim, WorkerRole } from "../config/index.js";
+import { PlanConflictClaim, WorkerProvider, WorkerRole } from "../config/index.js";
 import { IndependentReview, MAX_REVIEW_CYCLES, ReviewFinding, earlyStuck } from "../luna/index.js";
 import { ReviewPacket } from "../validation/index.js";
 
@@ -21,6 +21,9 @@ export interface RecoveryReviewEvidence {
   readonly invariants: readonly string[];
   readonly reviewerFindings: readonly string[];
   readonly attemptedFixSummary: string;
+  readonly provider?: WorkerProvider;
+  readonly adapter?: "codex/luna" | "opencode";
+  readonly localModel?: string;
 }
 
 export interface ControllerDependencies {
@@ -28,8 +31,10 @@ export interface ControllerDependencies {
   readonly reviewer: IndependentReviewer;
   /** Deterministic daemon gate + merge; it must not infer semantic approval. */
   readonly mergeReviewed: (packet: ReviewPacket) => Promise<DeterministicMergeResult>;
-  readonly resumeLuna: (reason: string) => Promise<void>;
+  readonly resumeLuna?: (reason: string) => Promise<void>;
+  readonly resumeWorker?: (provider: WorkerProvider, reason: string) => Promise<void>;
   readonly startRecovery?: (evidence: RecoveryReviewEvidence) => Promise<void>;
+  readonly providerForRole?: (role: WorkerRole) => WorkerProvider;
   readonly retirePrimary?: () => Promise<void>;
   readonly setState: (state: "reviewing" | "rework" | "blocked-human" | "paused") => Promise<void>;
   readonly closeIssue: () => Promise<void>;
@@ -105,15 +110,21 @@ export class ReviewCloseController {
         recoveryUsed = true;
         role = "recovery";
         cycle = 0;
-        await this.deps.startRecovery({ taskId: packet.taskId, role: "recovery", head: packet.head, branch: packet.branch, worktree: packet.worktree, machineValidation: JSON.stringify({ clean: packet.clean, pushed: packet.pushed, scope: packet.scope, dependencies: packet.dependencies, baseAncestor: packet.baseAncestor }), testFailures: packet.test.pass ? [] : [packet.test.command], acceptance: packet.acceptance, assumptions: packet.assumptions ?? [], invariants: packet.invariants ?? [], reviewerFindings: findings.map((item) => item.reason), attemptedFixSummary: independent.reason });
+        await this.deps.startRecovery({ taskId: packet.taskId, role: "recovery", head: packet.head, branch: packet.branch, worktree: packet.worktree, machineValidation: JSON.stringify({ clean: packet.clean, pushed: packet.pushed, scope: packet.scope, dependencies: packet.dependencies, baseAncestor: packet.baseAncestor }), testFailures: packet.test.pass ? [] : [packet.test.command], acceptance: packet.acceptance, assumptions: packet.assumptions ?? [], invariants: packet.invariants ?? [], reviewerFindings: findings.map((item) => item.reason), attemptedFixSummary: independent.reason, ...(packet.workerProvider === undefined ? {} : { provider: packet.workerProvider }), ...(packet.workerAdapter === undefined ? {} : { adapter: packet.workerAdapter }), ...(packet.localModel === undefined ? {} : { localModel: packet.localModel }) });
         findings.length = 0;
         packet = await this.deps.validate();
         continue;
       }
       await this.deps.setState("rework");
-      await this.deps.resumeLuna(independent.reason);
+      await this.resume(this.deps.providerForRole?.(role) ?? packet.workerProvider ?? "cloud", independent.reason);
       packet = await this.deps.validate();
     }
+  }
+
+  private async resume(provider: WorkerProvider, reason: string): Promise<void> {
+    if (this.deps.resumeWorker !== undefined) return this.deps.resumeWorker(provider, reason);
+    if (this.deps.resumeLuna !== undefined) return this.deps.resumeLuna(reason);
+    throw new Error(`no implementation worker resume operation for ${provider}`);
   }
 
   private async merge(packet: ReviewPacket): Promise<DeterministicMergeResult> {

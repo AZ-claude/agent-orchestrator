@@ -37,6 +37,7 @@ export interface WorkerSessionStart {
 export class LunaRunner {
   private readonly logRoot: string;
   private readonly maxResumeAttempts: number;
+  private readonly active = new Map<number, CodexProcess>();
   constructor(private readonly createProcess: ProcessFactory = spawnCodex, options: LunaRunnerOptions = {}) {
     this.logRoot = options.logRoot ?? join(homedir(), ".local", "state", "agent-orchestrator", "logs");
     this.maxResumeAttempts = options.maxResumeAttempts ?? 2;
@@ -63,14 +64,27 @@ export class LunaRunner {
     return result;
   }
 
+  async retire(pid?: number): Promise<boolean> {
+    if (pid === undefined) return false;
+    const process = this.active.get(pid);
+    if (process === undefined) return false;
+    process.kill("SIGTERM");
+    return true;
+  }
+
   private async run(invocation: CodexInvocation, worktree: string, attempt: number): Promise<LunaRunResult> {
     const process = this.createProcess(invocation, worktree);
-    const [stdout, stderr, exitCode, exitReason] = await Promise.all([collect(process.stdout), collect(process.stderr), process.exitCode, process.exitReason ?? Promise.resolve("exit" as const)]);
-    const observation = observeCodexOutput(stdout, exitCode, exitReason);
-    const logPath = join(this.logRoot, `${basename(worktree)}.jsonl`);
-    await mkdir(this.logRoot, { recursive: true });
-    await appendFile(logPath, [...stdout, ...stderr.map((line) => JSON.stringify({ type: "stderr", line }))].map((line) => `${line}\n`).join(""), "utf8");
-    return { ...observation, pid: process.pid, stderr, recoveryEvent: observation.outcome, attempt, logPath };
+    if (process.pid !== undefined) this.active.set(process.pid, process);
+    try {
+      const [stdout, stderr, exitCode, exitReason] = await Promise.all([collect(process.stdout), collect(process.stderr), process.exitCode, process.exitReason ?? Promise.resolve("exit" as const)]);
+      const observation = observeCodexOutput(stdout, exitCode, exitReason);
+      const logPath = join(this.logRoot, `${basename(worktree)}.jsonl`);
+      await mkdir(this.logRoot, { recursive: true });
+      await appendFile(logPath, [...stdout, ...stderr.map((line) => JSON.stringify({ type: "stderr", line }))].map((line) => `${line}\n`).join(""), "utf8");
+      return { ...observation, pid: process.pid, stderr, recoveryEvent: observation.outcome, attempt, logPath };
+    } finally {
+      if (process.pid !== undefined) this.active.delete(process.pid);
+    }
   }
 }
 

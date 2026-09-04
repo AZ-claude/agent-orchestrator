@@ -1,6 +1,6 @@
 # Agent Orchestrator — Qwen/OpenCode Worker pre-install delta HANDOFF
 
-Updated: 2026-09-03 JST  
+Updated: 2026-09-04 JST
 Status: **REQUIREMENTS COMPLETE — Planning Terra による差分 task-board / DAG 作成待ち**
 
 ## 0. Authority and precedence
@@ -21,6 +21,16 @@ Current accepted baseline before this delta: `91f8098c7966caa2eda6f4788425a3ff39
 
 **Real-host LaunchAgent installation remains blocked until this delta is implemented and final-accepted. Do not install/load/register the LaunchAgent while implementing this delta.**
 
+### 2026-09-04 user-directed context override
+
+The user supersedes this delta's former fixed `131072`/128K context value.
+The required configured execution context for both `qwen3.6:35b` and the
+Qwen3.8-27B pilot is now **`262144`/256K**. The OpenCode model limit and the
+Ollama service's persistent `OLLAMA_CONTEXT_LENGTH` must both be `262144`; a
+smaller value, including the historical 32K default, fails closed. A model may
+advertise a maximum at least this large, but the configured execution context
+must be exactly `262144`.
+
 ---
 
 ## 1. Goal
@@ -33,7 +43,7 @@ Agent Orchestrator
   └─ local worker: OpenCode -> Ollama -> Qwen
 ```
 
-The first supported local model is the user's existing **Qwen3.8-27B** setup, invoked through **OpenCode**, backed by **Ollama**, with an intended fixed context window of **128K / 131072 tokens**.
+The first supported local model is the user's existing **Qwen3.8-27B** setup, invoked through **OpenCode**, backed by **Ollama**, with an intended fixed context window of **256K / 262144 tokens**.
 
 The user must be able to choose whether work runs on cloud or local workers. Qwen3.8 is materially slower than Luna/Codex, so the orchestrator must never silently force all normal work onto Qwen merely because Qwen support exists.
 
@@ -130,11 +140,11 @@ Shell interpretation must remain disabled for process spawning. Arguments/config
 
 ---
 
-## 5. Model configuration and 128K context
+## 5. Model configuration and 256K context
 
 The first local production configuration is Qwen3.8-27B through Ollama/OpenCode.
 
-The intended context is fixed at **131072 tokens (128K)**.
+The intended configured execution context is fixed at **262144 tokens (256K)**.
 
 This delta must investigate where the authoritative context setting belongs in the actual OpenCode + Ollama setup and then implement a deterministic preflight that can establish that the configured local execution path is compatible with the intended context.
 
@@ -145,7 +155,7 @@ At minimum, local-worker preflight must fail closed when required local prerequi
 - configured model unavailable;
 - invalid/missing model identifier;
 - required local configuration missing;
-- intended 131072 context configuration cannot be established/validated using the supported local stack;
+- intended 262144 context configuration cannot be established/validated using the supported local stack;
 - working directory or required executable paths invalid.
 
 Do not silently reduce the context window to make the worker start.
@@ -370,7 +380,7 @@ This delta is complete only when all of the following are true:
 7. Provider fallback is separate from REWORK/STUCK/Recovery budget.
 8. Fallback starts local work from durable facts, never hidden cloud reasoning/history.
 9. Required local preflight fails closed when OpenCode/Ollama/model/context prerequisites are not satisfied.
-10. Intended local context is 131072 and is not silently downgraded.
+10. Intended local context is 262144 and is not silently downgraded.
 11. Independent Reviewer and deterministic merge gates apply identically to local implementation work.
 12. Durable evidence records provider/routing/fallback facts without secrets/private reasoning.
 13. Fake/integration tests cover routing and failure paths.

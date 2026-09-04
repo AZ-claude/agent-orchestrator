@@ -29,3 +29,15 @@ test("pre-install delta pilot proves reviewed-head, recovery, plan barrier, life
   assert.equal(result.retiredCleaned, true);
   assert.equal(result.authorityBoundary, true);
 });
+
+test("Qwen/OpenCode delta pilot proves routing, exact context preflight, durable evidence and no host mutation", async () => {
+  const result = await runPilotFixture();
+  assert.equal(result.autoFallbackFresh, true);
+  assert.equal(result.autoFallbackLatched, true);
+  assert.equal(result.autoFallbackReset, true);
+  assert.equal(result.fallbackOutsideRecovery, true);
+  assert.equal(result.localUnavailableFailClosed, true);
+  assert.equal(result.localPreflight262144, true);
+  assert.equal(result.durableProviderEvidence, true);
+  assert.equal(result.noHostMutation, true);
+});

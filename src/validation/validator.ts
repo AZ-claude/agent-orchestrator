@@ -1,6 +1,6 @@
 import { execFile as nodeExecFile } from "node:child_process";
 import { promisify } from "node:util";
-import { ManifestTask } from "../config/index.js";
+import { ManifestTask, WorkerProvider, WorkerRole } from "../config/index.js";
 import { GitAdapter, CommandResult, defaultCommandRunner } from "../git/index.js";
 
 const execFile = promisify(nodeExecFile);
@@ -31,6 +31,12 @@ export interface ReviewPacket extends ValidationEvidence {
   readonly acceptance: string;
   readonly assumptions?: readonly string[];
   readonly invariants?: readonly string[];
+  readonly workerRole?: WorkerRole;
+  readonly workerProvider?: WorkerProvider;
+  readonly workerAdapter?: "codex/luna" | "opencode";
+  readonly localModel?: string;
+  readonly processOutcome?: "success" | "availability-limit" | "crash" | "failed" | "spawn-error";
+  readonly providerFallback?: { readonly from: "cloud"; readonly to: "local"; readonly reason: "RATE_LIMIT" | "USAGE_LIMIT" | "QUOTA_LIMIT"; readonly latched: true };
 }
 
 export interface ValidationOptions {
@@ -111,6 +117,10 @@ export function compactReviewPacket(packet: ReviewPacket): string {
     `Dependencies: ${packet.dependencies}`,
     `Branch/worktree: ${packet.branchCheck ?? "UNKNOWN"}/${packet.worktreeCheck ?? "UNKNOWN"}`,
     `Base ancestor: ${packet.baseAncestor ?? "UNKNOWN"}`,
+    ...(packet.workerRole === undefined ? [] : [`Worker: ${packet.workerRole}/${packet.workerProvider ?? "unknown"}/${packet.workerAdapter ?? "unknown"}`]),
+    ...(packet.localModel === undefined ? [] : [`Local model: ${packet.localModel}`]),
+    ...(packet.processOutcome === undefined ? [] : [`Process outcome: ${packet.processOutcome}`]),
+    ...(packet.providerFallback === undefined ? [] : [`Provider fallback: ${packet.providerFallback.from}->${packet.providerFallback.to} (${packet.providerFallback.reason}), latched=${packet.providerFallback.latched}`]),
     ...(packet.previousRework === undefined ? [] : [`Previous rework: ${packet.previousRework}`]),
     `Acceptance: ${packet.acceptance}`,
     `Assumptions: ${packet.assumptions?.join(" | ") || "NONE"}`,

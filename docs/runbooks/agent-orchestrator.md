@@ -9,6 +9,7 @@ Run `npm run build` before using the CLI. The operational commands are:
 - `daemon`: repeat `run-once` at the configured interval.
 - `reconcile`: perform startup reconciliation without dispatching new work.
 - `status`: print checkpoint/Issue/process status.
+- `preflight`: perform the read-only local OpenCode/Ollama/model/context check.
 
 The daemon may auto-merge only after the Independent Reviewer has approved and
 all deterministic gates pass: tests, machine validation, scope/unexpected diff,
@@ -40,6 +41,24 @@ schedulers.
 
 Do not run production experiments from the pilot acceptance fixture. Do not
 install a LaunchAgent as part of normal daemon startup.
+
+## Worker routing and local preflight
+
+The optional `worker` block controls implementation workers without source
+changes. Its `mode` is `cloud`, `local`, or `auto`; `primary` and `recovery`
+are independently explicit providers. Omitting the block is cloud-only for
+backwards compatibility. `auto` starts with its configured provider and, on
+an explicit cloud `RATE_LIMIT`, `USAGE_LIMIT`, or `QUOTA_LIMIT`, records a
+provider-fallback fact and latches the rest of that run to a fresh local
+session. This does not consume REWORK or Recovery budget. A later run starts
+with the configured mode again.
+
+For local or auto operation, set `worker.local` with the OpenCode executable,
+model identifier, working directory, Ollama endpoint, and OpenCode config
+path. The read-only local preflight checks every path, OpenCode availability,
+the exact configured model, Ollama model availability, and context `262144`.
+It fails closed when any fact is absent or incompatible and never starts
+Ollama, pulls a model, writes configuration, or downgrades context.
 
 ## LaunchAgent (operator-only)
 
