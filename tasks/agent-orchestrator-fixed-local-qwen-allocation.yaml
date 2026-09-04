@@ -1,0 +1,106 @@
+version: 2
+planningAuthority: Terra
+
+handoff:
+  id: agent-orchestrator-fixed-local-qwen-allocation
+  source: docs/HANDOFF_2026-09-03_QWEN_OPENCODE_WORKER_DELTA.md
+  board: docs/task-boards/2026-09-04-fixed-local-qwen-allocation.md
+  targetRepo: /Users/eita/projects/slot
+  baseBranch: main
+  implementationPromptTemplate: prompts/luna-implementation-task.md
+  legacyManifest: tasks/agent-orchestrator-qwen-opencode-worker-preinstall-delta.yaml
+
+workerCompletionContract:
+  independentReview: required
+  reviewer: same-session-read-only-luna-subagent
+  reviewerContext: task-scope-source-head-review-packet-only
+  reviewerHistory: none
+  onRework: same-implementation-session-fix-validate-rereview
+  completion: reviewer-approve-required-before-merge
+  fallback: only-if-subagent-capability-unavailable
+
+tasks:
+  - id: AO-36
+    title: Define fixed local-Qwen allocation and common host lease contract
+    state: READY
+    dependsOn: []
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [docs/task-boards/**, docs/runbooks/**, tasks/agent-orchestrator-fixed-local-qwen-allocation.yaml, test/fixtures/**]
+    nonScope: [implementation-source, ollama-or-launchagent-mutation, kiji-source-changes, real-inference, generic-arbitration-framework, AO-01-to-AO-35-reimplementation]
+    completion: Record exact owner/model/context mapping and one non-secret shared host lease protocol with atomic acquire, terminal release, bounded wait, and safe stale-owner recovery.
+    test: npm test -- config manifest && npm run build && npm run lint
+    assumptions: [Host permits only one loaded model and one concurrent local inference, both clients can use one filesystem-safe lease primitive.]
+    invariants: [kiji-date-time-uses-qwen3.6-35b, agent-orchestrator-local-uses-qwen3.8-27b, context-is-exactly-262144, no-semantic-model-routing, no-secret-lease-evidence]
+  - id: AO-37
+    title: Bind Agent Orchestrator local execution to Qwen3.8-27B and preflight it read-only
+    state: PLANNED
+    dependsOn: [AO-36]
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/config/**, src/opencode/**, src/cli/**, docs/runbooks/**, test/config.test.ts, test/opencode.test.ts, test/entrypoint.test.ts]
+    nonScope: [kiji-code, cloud-worker-behavior, primary-recovery-or-rate-limit-semantics, direct-ollama-generation, model-management, launchagent-operations, generic-provider-registry]
+    completion: AO local profile accepts only installed Qwen3.8-27B through ollama/qwen3.8:latest and read-only fails closed unless model/config/service context is 262144 and capability is sufficient.
+    test: npm test -- config opencode entrypoint controller && npm run build && npm run lint
+    assumptions: [qwen3.8:latest resolves to the installed Qwen3.8-27B, capability is an upper bound rather than active request context.]
+    invariants: [no-preflight-mutation, cloud-codex-luna-backward-compatible, rate-limit-fallback-remains-fresh-local-not-recovery, reviewer-merge-terra-authority-unchanged]
+  - id: AO-38
+    title: Enforce the common host lease around AO local OpenCode work
+    state: PLANNED
+    dependsOn: [AO-36]
+    parallel: SAFE
+    humanGate: false
+    allowedPaths: [src/opencode/**, src/worker/**, src/controller/**, src/checkpoint/**, src/reconcile/**, src/logging/**, src/config/**, test/opencode.test.ts, test/worker.test.ts, test/controller.test.ts, test/reconcile.test.ts, test/fixtures/**]
+    nonScope: [kiji-implementation, global-job-queue, priority-scheduler, concurrent-local-workers, automatic-model-switching-or-preload, direct-ollama-model-management, launchagent-lifecycle]
+    completion: Every AO local invocation holds the shared lease from before spawn through cleanup and records deterministic busy/stale/terminal facts without consuming REWORK or Recovery budget.
+    test: npm test -- opencode worker controller reconcile checkpoint && npm run build && npm run lint
+    assumptions: [The common lease atomically identifies an owner and safely recovers a demonstrably dead same-host owner.]
+    invariants: [one-active-ao-local-inference, ao-never-invokes-qwen3.6-or-alters-kiji, fallback-not-recovery, foreign-owner-never-released]
+  - id: AO-39
+    title: Adopt Qwen3.6 and common lease in kiji date/time work
+    state: PLANNED
+    dependsOn: [AO-36]
+    parallel: EXCLUSIVE
+    humanGate: true
+    allowedPaths: [docs/task-boards/**, docs/agent-runs/**, docs/runbooks/**, tasks/agent-orchestrator-fixed-local-qwen-allocation.yaml]
+    nonScope: [agent-orchestrator-source, kiji-production-databases, scheduler-registration-or-retargeting, raw-session-history, non-date-time-workloads, qwen3.8-use, second-lease-protocol, model-management]
+    completion: After explicit kiji-repository authorization, date/time Qwen work uses only qwen3.6:35b at 262144 and interoperably acquires/releases the AO-36 lease, rejecting the existing 32K default.
+    test: kiji-focused-fake-ollama-and-lease-suite && kiji-relevant-full-suite
+    assumptions: [Separate kiji review accepts the shared contract and has an injectable safe boundary.]
+    invariants: [no-production-data-or-scheduler-mutation, no-silent-32768-fallback, kiji-never-selects-qwen3.8, byte-for-byte-shared-lease-contract]
+  - id: AO-40
+    title: Prove fixed allocation and contention with deterministic cross-client fakes
+    state: PLANNED
+    dependsOn: [AO-37, AO-38, AO-39]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [test/**, scripts/pilot/**, docs/agent-runs/**, docs/runbooks/**, tasks/agent-orchestrator-fixed-local-qwen-allocation.yaml]
+    nonScope: [real-model-inference, production-data, scheduler-changes, source-expansion-outside-test-seams, model-management, launchagent-install-load-register]
+    completion: Fakes prove model/context ownership, one cross-client holder, no request before acquire, safe terminal/stale recovery, and unchanged AO cloud/rate-limit/reviewer/merge behavior.
+    test: npm test && npm run build && npm run lint && packaging/launchd/manage.sh verify && kiji-relevant-full-suite
+    assumptions: [AO-39 provides a compatible kiji fake client and fixture.]
+    invariants: [fakes-do-not-claim-concurrent-model-residency, no-launchctl-or-ollama-configuration-mutation, no-real-kiji-data]
+  - id: AO-41
+    title: Run disposable real-host handoff pilot and restore nominated idle model
+    state: PLANNED
+    dependsOn: [AO-40]
+    parallel: EXCLUSIVE
+    humanGate: true
+    allowedPaths: [scripts/pilot/**, docs/agent-runs/**, docs/runbooks/**, tasks/agent-orchestrator-fixed-local-qwen-allocation.yaml]
+    nonScope: [production-kiji-data-or-scheduler, source-code-fixes, model-installation, permanent-ollama-configuration-change, concurrent-inference, agent-orchestrator-launchagent-operations]
+    completion: With operator-approved disposable target and idle-model choice, pilot both fixed models through the lease at 262144 without overlap and restores the nominated sole idle model; inaccessible host leaves final acceptance non-PASS.
+    test: npm test && npm run build && npm run lint && packaging/launchd/manage.sh verify && kiji-pilot-verification
+    assumptions: [Both models are installed and AO-40 passes.]
+    invariants: [no-production-request-or-data-mutation, no-model-pull-or-context-downgrade, no-launchagent-lifecycle, no-concurrent-residency-claim]
+  - id: AO-42
+    title: Final Terra Acceptance of fixed local-Qwen allocation
+    state: PLANNED
+    dependsOn: [AO-41]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [docs/agent-runs/**, docs/task-boards/**, tasks/agent-orchestrator-fixed-local-qwen-allocation.yaml]
+    nonScope: [code-fixes, implementation-review-or-merge, fixed-assignment-change, model-configuration-mutation, production-operations, launchagent-install]
+    completion: Terra records PASS only when all fixed allocation, 262144, lease, 32K prevention, fake, pilot/restoration, backward compatibility, authority, and separation evidence agree; otherwise REWORK or REQUIREMENT_CONFLICT.
+    test: npm test && npm run build && npm run lint && packaging/launchd/manage.sh verify && approved-kiji-verification-evidence
+    assumptions: [All upstream work and separate kiji review artifacts are accepted with no unresolved Human Gate.]
+    invariants: [final-acceptance-never-fixes-code, terra-authority-preserved, real-host-agent-orchestrator-launchagent-install-unexecuted]
