@@ -32,7 +32,7 @@ AO-36 fixed allocation and host-lease contract
                                         └─> AO-42 Final Terra Acceptance
 ```
 
-Execution status: **AO-36 through AO-40 implementation, deterministic acceptance, and required independent review are PASS; AO-41 is the remaining operator Human Gate.** AO-36 is the contract root; AO-37 and AO-38 are complete SAFE branches; AO-39's cross-repository authorization was supplied by the current user instruction and its separate repository suite passed. AO-40 is complete and recorded in [the implementation/review evidence](../agent-runs/ao-36-40-independent-review.md); AO-41 onward remains EXCLUSIVE.
+Execution status: **AO-36 through AO-42 are PASS.** AO-36 is the contract root; AO-37 and AO-38 are complete SAFE branches; AO-39's cross-repository authorization was supplied by the current user instruction and its separate repository suite passed. AO-40 is recorded in [the implementation/review evidence](../agent-runs/ao-36-40-independent-review.md), AO-41 in [the real-host pilot evidence](../agent-runs/ao-41-pilot.md), and AO-42 in [the Final Terra Acceptance](../agent-runs/ao-42-final-terra-acceptance.md). The separate real-host LaunchAgent install gate remains unexecuted.
 
 ## Tasks
 
@@ -88,7 +88,7 @@ Execution status: **AO-36 through AO-40 implementation, deterministic acceptance
 
 ### AO-41 — Run a disposable real-host handoff pilot and restore the nominated idle model
 
-- State: PLANNED; dependencies: AO-40; parallel: EXCLUSIVE; Human Gate: **required — operator approves the bounded non-production `/kiji` pilot target and the post-pilot idle-model choice**.
+- State: DONE; dependencies: AO-40; parallel: EXCLUSIVE; Human Gate: **satisfied — operator approved the disposable non-production target and `qwen3.6:35b` idle-model restoration**.
 - Scope / allowed paths: `scripts/pilot/**`, `docs/agent-runs/**`, `docs/runbooks/**`, and a disposable `/kiji` test target approved at the gate.
 - Non-scope: production `/kiji` data/Scheduler, source-code fixes, model installation, permanent Ollama configuration changes, concurrent inference, Agent Orchestrator LaunchAgent operations.
 - Completion / acceptance: after read-only preflight, executes one bounded disposable `/kiji` Qwen3.6 request and one bounded disposable AO/OpenCode Qwen3.8 request through the common lease, records that they did not overlap, records 262144 for each, and restores the operator-nominated model as the sole loaded idle model. If the host cannot safely perform a step, records the exact limitation and leaves Final Acceptance non-PASS.
@@ -98,7 +98,7 @@ Execution status: **AO-36 through AO-40 implementation, deterministic acceptance
 
 ### AO-42 — Final Terra Acceptance of fixed local-Qwen allocation
 
-- State: PLANNED; dependencies: AO-41; parallel: EXCLUSIVE; Human Gate: none unless a requirement conflict is found.
+- State: DONE; dependencies: AO-41; parallel: EXCLUSIVE; Human Gate: none unless a requirement conflict is found.
 - Scope / allowed paths: `docs/agent-runs/**`, `docs/task-boards/**`, `tasks/agent-orchestrator-fixed-local-qwen-allocation.yaml`.
 - Non-scope: code fixes, normal implementation review/merge, changing fixed assignment, model installation/configuration mutation, production operations, LaunchAgent install.
 - Completion / acceptance: Terra records PASS only when the exact fixed mapping, 262144 preflights, shared capacity-one lease, 32K prevention, cross-client fake proof, safe real-host pilot/restoration, legacy Luna/Codex compatibility, rate-limit/REWORK/STUCK/Recovery separation, and reviewer/deterministic-merge/Terra authority evidence all agree. Otherwise records scoped REWORK or REQUIREMENT_CONFLICT.
