@@ -1,0 +1,58 @@
+version: 2
+planningAuthority: Terra
+handoff:
+  id: agent-orchestrator-runtime-composition
+  source: docs/task-boards/2026-09-06-runtime-composition.md
+  board: docs/task-boards/2026-09-06-runtime-composition.md
+  targetRepo: /tmp/agent-orchestrator-disposable-target
+  baseBranch: main
+  implementationPromptTemplate: Implement only the canonical task scope, validate it, and leave durable evidence.
+workerCompletionContract:
+  independentReview: required
+  reviewer: same-session-read-only-luna-subagent
+  reviewerContext: task-scope-source-head-review-packet-only
+  reviewerHistory: none
+  onRework: same-implementation-session-fix-validate-rereview
+  completion: reviewer-approve-required-before-merge
+  fallback: only-if-subagent-capability-unavailable
+tasks:
+  - id: AO-43
+    title: Add safe runtime target configuration
+    state: IN_PROGRESS
+    dependsOn: []
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/config/**, docs/runbooks/**, test/config.test.ts]
+    test: npm test -- config
+  - id: AO-44
+    title: Compose durable poll and reconciliation
+    state: PLANNED
+    dependsOn: [AO-43]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/cli/**, src/runtime/**, src/reconcile/**, test/runtime.test.ts]
+    test: npm test -- runtime
+  - id: AO-45
+    title: Wire worker review merge lifecycle
+    state: PLANNED
+    dependsOn: [AO-44]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/runtime/**, src/controller/**, test/runtime.test.ts]
+    test: npm test -- runtime
+  - id: AO-46
+    title: Prove disposable end to end and restart continuation
+    state: PLANNED
+    dependsOn: [AO-45]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [test/runtime.test.ts, docs/agent-runs/**]
+    test: npm test -- runtime
+  - id: AO-47
+    title: Final acceptance of runtime composition
+    state: PLANNED
+    dependsOn: [AO-46]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [docs/agent-runs/**, docs/task-boards/**]
+    test: npm test
