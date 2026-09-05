@@ -14,6 +14,8 @@ export {
   WORKER_MODES,
   WORKER_PROVIDERS,
   WORKER_OUTCOMES,
+  AO_LOCAL_MODEL,
+  REQUIRED_LOCAL_CONTEXT,
   assertSafeDurableText,
   checkpointSchema,
   configSchema,

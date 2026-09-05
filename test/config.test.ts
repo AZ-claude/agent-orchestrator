@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
+import { parse as parseYaml } from "yaml";
 
 import {
   checkpointSchema,
@@ -34,11 +36,12 @@ test("worker config defaults to cloud and validates explicit local/auto choices"
     recovery: "local",
     local: {
       executable: "/tmp/opencode",
-      model: "ollama/qwen3.6:35b",
+      model: "ollama/qwen3.8:latest",
       contextTokens: 262144,
       workdir: "/tmp/worktree",
       ollamaBaseUrl: "http://127.0.0.1:11434",
       configPath: "/tmp/opencode.jsonc",
+      leasePath: "/tmp/agent-orchestrator-ollama.lease",
     },
   } as const;
   const parsed = configSchema.parse({ ...base, worker: local });
@@ -47,7 +50,33 @@ test("worker config defaults to cloud and validates explicit local/auto choices"
   assert.equal(configSchema.safeParse({ ...base, worker: { ...local, mode: "cloud" } }).success, false);
   assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: undefined } }).success, false);
   assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: { ...local.local, contextTokens: 32768 } } }).success, false);
+  assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: { ...local.local, model: "ollama/qwen3.6:35b" } } }).success, false);
+  assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: { ...local.local, leasePath: undefined } } }).success, false);
   assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: { ...local.local, ollamaBaseUrl: "http://user:pass@host:11434" } } }).success, false);
+});
+
+test("AO-36 contract fixes both owners, context, and safe lease lifecycle", async () => {
+  const contract = JSON.parse(await readFile("test/fixtures/fixed-local-qwen-allocation.json", "utf8")) as {
+    version: number;
+    owners: Record<string, { model: string; contextTokens: number }>;
+    lifecycle: Record<string, boolean>;
+    evidenceFields: string[];
+    forbiddenEvidence: string[];
+  };
+  assert.equal(contract.version, 1);
+  assert.equal(contract.owners["agent-orchestrator"]?.model, "ollama/qwen3.8:latest");
+  assert.equal(contract.owners["agent-orchestrator"]?.contextTokens, 262144);
+  assert.equal(contract.owners.kiji?.model, "qwen3.6:35b");
+  assert.equal(contract.owners.kiji?.contextTokens, 262144);
+  assert.equal(contract.lifecycle.acquireBeforeRequest, true);
+  assert.equal(contract.lifecycle.exclusiveThroughCleanup, true);
+  assert.equal(contract.lifecycle.releaseOnTerminalPaths, true);
+  assert.equal(contract.lifecycle.ownerScopedStaleRecovery, true);
+  assert.equal(contract.lifecycle.foreignOwnerRelease, false);
+  assert.deepEqual(contract.evidenceFields, ["status", "owner", "model", "pid"]);
+  assert.ok(contract.forbiddenEvidence.includes("prompt"));
+  const manifest = parseManifest(parseYaml(await readFile("tasks/agent-orchestrator-fixed-local-qwen-allocation.yaml", "utf8")));
+  assert.equal(manifest.tasks.find((task) => task.id === "AO-36")?.state, "DONE");
 });
 
 test("config schema rejects a multi-repo-shaped config and unknown fields", () => {

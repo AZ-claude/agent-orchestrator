@@ -110,7 +110,8 @@ export class WorkerDispatcher {
   }
 
   private async preflightFailure(provider: WorkerProvider, role: WorkerRole): Promise<WorkerRunResult | undefined> {
-    if (provider !== "local" || this.localPreflight === undefined || await this.localPreflight()) return undefined;
+    if (provider !== "local") return undefined;
+    if (this.localPreflight !== undefined && await this.localPreflight()) return undefined;
     return { provider: "local", adapter: "opencode", role, sessionId: null, pid: undefined, outcome: "failed", exitCode: null, stderr: [], logPath: "", fresh: true, resumable: false };
   }
 }

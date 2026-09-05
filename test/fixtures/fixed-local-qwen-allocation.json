@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "leasePathExample": "/Users/eita/.local/state/ollama-inference/lease",
+  "owners": {
+    "agent-orchestrator": { "model": "ollama/qwen3.8:latest", "contextTokens": 262144 },
+    "kiji": { "model": "qwen3.6:35b", "contextTokens": 262144 }
+  },
+  "lifecycle": {
+    "acquireBeforeRequest": true,
+    "exclusiveThroughCleanup": true,
+    "releaseOnTerminalPaths": true,
+    "ownerScopedStaleRecovery": true,
+    "boundedWait": true,
+    "foreignOwnerRelease": false
+  },
+  "evidenceFields": ["status", "owner", "model", "pid"],
+  "forbiddenEvidence": ["prompt", "source", "credential", "private reasoning", "conversation history"]
+}

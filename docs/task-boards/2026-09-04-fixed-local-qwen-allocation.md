@@ -32,13 +32,13 @@ AO-36 fixed allocation and host-lease contract
                                         └─> AO-42 Final Terra Acceptance
 ```
 
-Initial READY: **AO-36 only**. After AO-36, AO-37 and AO-38 are parallel SAFE. AO-39 is blocked at its explicit cross-repository Human Gate. AO-40 onward is EXCLUSIVE because it proves or operates the shared host boundary.
+Execution status: **AO-36 through AO-40 implementation, deterministic acceptance, and required independent review are PASS; AO-41 is the remaining operator Human Gate.** AO-36 is the contract root; AO-37 and AO-38 are complete SAFE branches; AO-39's cross-repository authorization was supplied by the current user instruction and its separate repository suite passed. AO-40 is complete and recorded in [the implementation/review evidence](../agent-runs/ao-36-40-independent-review.md); AO-41 onward remains EXCLUSIVE.
 
 ## Tasks
 
 ### AO-36 — Define the fixed allocation and common local-Qwen lease contract
 
-- State: READY; dependencies: none; parallel: SAFE; Human Gate: none.
+- State: DONE; dependencies: none; parallel: SAFE; Human Gate: none.
 - Scope / allowed paths: `docs/task-boards/**`, `docs/runbooks/**`, `tasks/agent-orchestrator-fixed-local-qwen-allocation.yaml`, `test/fixtures/**`.
 - Non-scope: implementation source, Ollama/LaunchAgent mutation, `/kiji` source changes, real inference, generic arbitration/queue framework, changing AO-01–AO-35.
 - Completion / acceptance: records one versioned, non-secret contract: exact owner/model/context mapping; an operator-configured absolute shared lease location; acquisition-before-any-Ollama-request, exclusive hold through invocation/cleanup, release-on-all-terminal-paths, stale-owner/process-death recovery, bounded wait/observable busy result, and durable owner/model/lease outcome facts. It specifies that neither client may change the other client's model or configuration.
@@ -48,7 +48,7 @@ Initial READY: **AO-36 only**. After AO-36, AO-37 and AO-38 are parallel SAFE. A
 
 ### AO-37 — Bind Agent Orchestrator local execution to Qwen3.8-27B and preflight it read-only
 
-- State: PLANNED; dependencies: AO-36; parallel: SAFE; Human Gate: none.
+- State: DONE; dependencies: AO-36; parallel: SAFE; Human Gate: none.
 - Scope / allowed paths: `src/config/**`, `src/opencode/**`, `src/cli/**`, `docs/runbooks/**`, `test/config.test.ts`, `test/opencode.test.ts`, `test/entrypoint.test.ts`.
 - Non-scope: `/kiji` code/configuration, cloud worker behavior, changing Primary/Recovery or rate-limit fallback semantics, direct Ollama generation, model pull/change, LaunchAgent operation, generic provider registry.
 - Completion / acceptance: AO's local profile validates and invokes only `ollama/qwen3.8:latest` backed by the installed Qwen3.8-27B, with configured context 262144. Its read-only preflight verifies the exact configured model, OpenCode config, Ollama model capability at least 262144, and persistent Ollama service context 262144; absent/mismatched facts fail closed before dispatch. Existing Luna/Codex cloud configurations remain backward compatible.
@@ -58,7 +58,7 @@ Initial READY: **AO-36 only**. After AO-36, AO-37 and AO-38 are parallel SAFE. A
 
 ### AO-38 — Enforce the common host lease around AO local OpenCode work
 
-- State: PLANNED; dependencies: AO-36; parallel: SAFE; Human Gate: none.
+- State: DONE; dependencies: AO-36; parallel: SAFE; Human Gate: none.
 - Scope / allowed paths: `src/opencode/**`, `src/worker/**`, `src/controller/**`, `src/checkpoint/**`, `src/reconcile/**`, `src/logging/**`, `src/config/**`, `test/opencode.test.ts`, `test/worker.test.ts`, `test/controller.test.ts`, `test/reconcile.test.ts`, `test/fixtures/**`.
 - Non-scope: `/kiji` implementation, global job queue, priority scheduler, concurrent local workers, automatic model switching/preloading, direct Ollama model management, LaunchAgent lifecycle.
 - Completion / acceptance: every AO local OpenCode invocation (explicit local and auto rate-limit fallback) acquires the AO-36 lease before process spawn and holds it until the child and retirement cleanup reach a terminal state. Busy, timeout, malformed, or stale lease facts are durable and fail/await deterministically without consuming REWORK or Recovery budget. Crash/reconcile releases only a safely identifiable stale AO owner; no path releases another client owner.
@@ -68,7 +68,7 @@ Initial READY: **AO-36 only**. After AO-36, AO-37 and AO-38 are parallel SAFE. A
 
 ### AO-39 — Adopt the Qwen3.6 and common-lease contract in `/kiji` date/time work
 
-- State: PLANNED; dependencies: AO-36; parallel: EXCLUSIVE; Human Gate: **required — explicit authorization and review in the separate `/kiji` repository before any source/configuration change**.
+- State: DONE; dependencies: AO-36; parallel: EXCLUSIVE; Human Gate: **satisfied — explicit authorization was supplied in the current user instruction and the separate `/kiji` review/test evidence passed**.
 - Scope / allowed paths: `/Users/eita/projects/kiji/src/kiji/draft/**`, `/Users/eita/projects/kiji/test/**`, `/Users/eita/projects/kiji/docs/**`, and its non-secret operator configuration/example paths only after the Human Gate.
 - Non-scope: Agent Orchestrator source, `/kiji` production databases, scheduler registration/retargeting, raw session history, non-date/time workloads, Qwen3.8 use, a second lease protocol, model pull/load/unload operations.
 - Completion / acceptance: `/kiji` date/time Qwen invocation uses only `qwen3.6:35b`, explicitly requests context 262144, validates configuration without falling back to its current 32K default, and acquires/releases exactly the AO-36 lease around the request. Its configuration errors and host-lane busy outcome are explicit and non-destructive; existing non-Qwen and deterministic paths retain their behavior.
@@ -78,7 +78,7 @@ Initial READY: **AO-36 only**. After AO-36, AO-37 and AO-38 are parallel SAFE. A
 
 ### AO-40 — Prove fixed allocation and contention behavior with deterministic cross-client fakes
 
-- State: PLANNED; dependencies: AO-37, AO-38, AO-39; parallel: EXCLUSIVE; Human Gate: none.
+- State: DONE; dependencies: AO-37, AO-38, AO-39; parallel: EXCLUSIVE; Human Gate: none.
 - Scope / allowed paths: `test/**`, `scripts/pilot/**`, `docs/agent-runs/**`, `docs/runbooks/**`, `tasks/agent-orchestrator-fixed-local-qwen-allocation.yaml` plus the approved `/kiji` fixture/evidence paths from AO-39.
 - Non-scope: real model inference, production data, Scheduler changes, source feature expansion beyond test seams, model-management commands, LaunchAgent install/load/register.
 - Completion / acceptance: disposable fakes demonstrate that AO selects only Qwen3.8 and `/kiji` date/time work only Qwen3.6, each requests 262144, exactly one cross-client lease holder can invoke Ollama, second caller waits/fails observably without a request, terminal/stale-owner recovery is safe, and AO cloud/Codex/Luna/review/merge/rate-limit semantics remain unchanged.

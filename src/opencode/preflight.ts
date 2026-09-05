@@ -1,10 +1,10 @@
 import { access, readFile } from "node:fs/promises";
 import { execFile as nodeExecFile } from "node:child_process";
 import { promisify } from "node:util";
-import { LocalWorkerConfig } from "../config/index.js";
+import { AO_LOCAL_MODEL, LocalWorkerConfig, REQUIRED_LOCAL_CONTEXT } from "../config/index.js";
 
 const execFile = promisify(nodeExecFile);
-export const REQUIRED_LOCAL_CONTEXT = 262144 as const;
+export { REQUIRED_LOCAL_CONTEXT };
 
 export interface PreflightCheck { readonly name: string; readonly pass: boolean; readonly detail: string; }
 export interface LocalPreflightResult { readonly pass: boolean; readonly checks: readonly PreflightCheck[]; readonly provider: "local"; readonly model: string; readonly contextTokens: 262144; }
@@ -15,17 +15,20 @@ export interface LocalPreflightProbe {
   readonly readConfig?: (path: string) => Promise<string>;
   readonly listModels?: (baseUrl: string) => Promise<readonly string[]>;
   readonly modelContext?: (baseUrl: string, model: string) => Promise<number | null>;
+  readonly serviceContext?: () => Promise<number | null>;
 }
 
 /** Read-only local-stack validation. It never starts a process or changes config. */
 export async function preflightLocalWorker(config: LocalWorkerConfig, probe: LocalPreflightProbe = {}): Promise<LocalPreflightResult> {
   const checks: PreflightCheck[] = [];
+  checks.push({ name: "fixed-model", pass: config.model === AO_LOCAL_MODEL, detail: config.model === AO_LOCAL_MODEL ? `fixed model=${AO_LOCAL_MODEL}` : `model must equal ${AO_LOCAL_MODEL}` });
   checks.push({ name: "requested-context", pass: config.contextTokens === REQUIRED_LOCAL_CONTEXT, detail: config.contextTokens === REQUIRED_LOCAL_CONTEXT ? "requested context=262144" : "requested context is not exactly 262144" });
   const exists = probe.pathExists ?? (async (path: string) => { try { await access(path); return true; } catch { return false; } });
   const readConfig = probe.readConfig ?? ((path: string) => readFile(path, "utf8"));
   const runVersion = probe.runVersion ?? defaultVersionProbe;
   const listModels = probe.listModels ?? defaultListModels;
   const modelContext = probe.modelContext ?? defaultModelContext;
+  const serviceContext = probe.serviceContext ?? defaultServiceContext;
 
   checks.push(pathCheck("opencode-executable", config.executable, await exists(config.executable)));
   checks.push(pathCheck("workdir", config.workdir, await exists(config.workdir)));
@@ -62,12 +65,21 @@ export async function preflightLocalWorker(config: LocalWorkerConfig, probe: Loc
     checks.push({ name: "ollama-model-context", pass: false, detail: "model context cannot be inspected" });
   }
 
+  let persistentContext: number | null = null;
+  try {
+    persistentContext = await serviceContext();
+    checks.push({ name: "ollama-service-context", pass: persistentContext === REQUIRED_LOCAL_CONTEXT, detail: persistentContext === null ? "persistent Ollama service context is unavailable" : persistentContext === REQUIRED_LOCAL_CONTEXT ? `persistent service context=${REQUIRED_LOCAL_CONTEXT}` : `persistent service context=${persistentContext}; required ${REQUIRED_LOCAL_CONTEXT}` });
+  } catch {
+    checks.push({ name: "ollama-service-context", pass: false, detail: "persistent Ollama service context cannot be inspected" });
+  }
+
   // OpenCode's exact configuration controls the requested execution window.
   // Ollama reports the model's maximum supported window, which must be at
   // least that requested value; requiring equality would reject a model that
   // safely supports 256K simply because it can support a larger window.
   void configured;
   void actualContext;
+  void persistentContext;
   return { provider: "local", model: config.model, contextTokens: REQUIRED_LOCAL_CONTEXT, pass: checks.every((check) => check.pass), checks };
 }
 
@@ -111,6 +123,18 @@ async function defaultModelContext(baseUrl: string, model: string): Promise<numb
   if (!response.ok) throw new Error(`Ollama show returned ${response.status}`);
   const body = await response.json() as unknown;
   return findContext(body);
+}
+
+async function defaultServiceContext(): Promise<number | null> {
+  const uid = typeof process.getuid === "function" ? String(process.getuid()) : "";
+  const service = uid === "" ? "gui/com.ollama.serve" : `gui/${uid}/com.ollama.serve`;
+  const result = await execFile("launchctl", ["print", service], { maxBuffer: 64 * 1024 });
+  return findServiceContext(`${String(result.stdout)}\n${String(result.stderr)}`);
+}
+
+function findServiceContext(value: string): number | null {
+  const match = value.match(/OLLAMA_(?:CONTEXT_LENGTH|NUM_CTX)\s*(?:=>|=|:)\s*(\d+)/i);
+  return match?.[1] === undefined ? null : Number(match[1]);
 }
 
 function findContext(value: unknown): number | null {

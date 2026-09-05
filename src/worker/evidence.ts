@@ -15,6 +15,7 @@ export function addWorkerEvidence(checkpoint: Checkpoint, dispatch: WorkerDispat
     configuredRecovery: dispatch.routing.configuredRecovery,
     ...(localModel === undefined ? {} : { localModel }),
     processOutcome: run.outcome,
+    ...(run.lease === undefined ? {} : { localLease: run.lease }),
     ...(dispatch.routing.fallback === undefined ? {} : { providerFallback: dispatch.routing.fallback }),
   };
 }

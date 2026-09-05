@@ -1,7 +1,8 @@
 import { WorkerProvider, WorkerRole } from "../config/index.js";
+import type { LeaseEvidence } from "../opencode/lease.js";
 
 export type AvailabilityLimitReason = "RATE_LIMIT" | "USAGE_LIMIT" | "QUOTA_LIMIT";
-export type WorkerOutcome = "success" | "availability-limit" | "crash" | "failed" | "spawn-error";
+export type WorkerOutcome = "success" | "availability-limit" | "crash" | "failed" | "spawn-error" | "lease-busy";
 
 export interface WorkerRecoveryEvidence {
   readonly taskId: string;
@@ -29,6 +30,7 @@ export interface WorkerRunResult {
   readonly logPath: string;
   readonly fresh: boolean;
   readonly resumable: boolean;
+  readonly lease?: LeaseEvidence;
 }
 
 /** The only lifecycle facts the controller needs from an implementation worker. */

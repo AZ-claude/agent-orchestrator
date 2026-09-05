@@ -22,7 +22,7 @@ workerCompletionContract:
 tasks:
   - id: AO-36
     title: Define fixed local-Qwen allocation and common host lease contract
-    state: READY
+    state: DONE
     dependsOn: []
     parallel: SAFE
     humanGate: false
@@ -34,7 +34,7 @@ tasks:
     invariants: [kiji-date-time-uses-qwen3.6-35b, agent-orchestrator-local-uses-qwen3.8-27b, context-is-exactly-262144, no-semantic-model-routing, no-secret-lease-evidence]
   - id: AO-37
     title: Bind Agent Orchestrator local execution to Qwen3.8-27B and preflight it read-only
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-36]
     parallel: SAFE
     humanGate: false
@@ -46,7 +46,7 @@ tasks:
     invariants: [no-preflight-mutation, cloud-codex-luna-backward-compatible, rate-limit-fallback-remains-fresh-local-not-recovery, reviewer-merge-terra-authority-unchanged]
   - id: AO-38
     title: Enforce the common host lease around AO local OpenCode work
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-36]
     parallel: SAFE
     humanGate: false
@@ -58,7 +58,7 @@ tasks:
     invariants: [one-active-ao-local-inference, ao-never-invokes-qwen3.6-or-alters-kiji, fallback-not-recovery, foreign-owner-never-released]
   - id: AO-39
     title: Adopt Qwen3.6 and common lease in kiji date/time work
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-36]
     parallel: EXCLUSIVE
     humanGate: true
@@ -70,7 +70,7 @@ tasks:
     invariants: [no-production-data-or-scheduler-mutation, no-silent-32768-fallback, kiji-never-selects-qwen3.8, byte-for-byte-shared-lease-contract]
   - id: AO-40
     title: Prove fixed allocation and contention with deterministic cross-client fakes
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-37, AO-38, AO-39]
     parallel: EXCLUSIVE
     humanGate: false

@@ -24,8 +24,9 @@ worker:
 #   recovery: local
 #   local:
 #     executable: /Users/eita/.opencode/bin/opencode
-#     model: ollama/qwen3.6:35b
+#     model: ollama/qwen3.8:latest
 #     contextTokens: 262144
 #     workdir: /Users/eita/projects/slot
 #     ollamaBaseUrl: http://127.0.0.1:11434
 #     configPath: /Users/eita/.config/opencode/opencode.jsonc
+#     leasePath: /Users/eita/.local/state/ollama-inference/lease

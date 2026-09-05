@@ -40,8 +40,10 @@ export type WorkerMode = (typeof WORKER_MODES)[number];
 
 export const WORKER_PROVIDERS = ["cloud", "local"] as const;
 export type WorkerProvider = (typeof WORKER_PROVIDERS)[number];
-export const WORKER_OUTCOMES = ["success", "availability-limit", "crash", "failed", "spawn-error"] as const;
+export const WORKER_OUTCOMES = ["success", "availability-limit", "crash", "failed", "spawn-error", "lease-busy"] as const;
 export type WorkerOutcome = (typeof WORKER_OUTCOMES)[number];
+export const AO_LOCAL_MODEL = "ollama/qwen3.8:latest" as const;
+export const REQUIRED_LOCAL_CONTEXT = 262144 as const;
 
 export const SESSION_LIFECYCLES = ["ACTIVE", "RESUMABLE", "RETIRED", "CLEANUP"] as const;
 export type SessionLifecycle = (typeof SESSION_LIFECYCLES)[number];
@@ -81,11 +83,13 @@ export interface PilotConfig {
 export interface LocalWorkerConfig {
   readonly executable: string;
   readonly model: string;
-  readonly contextTokens: 262144;
+  readonly contextTokens: typeof REQUIRED_LOCAL_CONTEXT;
   readonly workdir: string;
   readonly ollamaBaseUrl: string;
   /** Read-only path to the OpenCode configuration used by preflight. */
   readonly configPath: string;
+  /** Absolute path to the shared cross-client filesystem lease directory. */
+  readonly leasePath: string;
 }
 
 export interface WorkerConfig {
@@ -198,6 +202,13 @@ export interface Checkpoint {
   readonly localModel?: string;
   readonly processOutcome?: WorkerOutcome;
   readonly providerFallback?: ProviderFallbackFact;
+  readonly localLease?: {
+    readonly status: "acquired" | "busy" | "timeout" | "malformed" | "released" | "release-skipped";
+    readonly owner: "agent-orchestrator" | "kiji";
+    readonly model: string;
+    readonly pid: number;
+    readonly recoveredStale?: true;
+  };
 }
 
 export type ReviewResult =
@@ -399,15 +410,16 @@ function validateWorkerConfig(value: unknown, path: string, issues: ValidationIs
 function validateLocalWorkerConfig(value: unknown, path: string, issues: ValidationIssue[]): LocalWorkerConfig | null | undefined {
   if (value === undefined) return null;
   if (!isRecord(value)) { issues.push(issue(path, "must be an object")); return undefined; }
-  rejectUnknown(value, ["executable", "model", "contextTokens", "workdir", "ollamaBaseUrl", "configPath"], path, issues);
+  rejectUnknown(value, ["executable", "model", "contextTokens", "workdir", "ollamaBaseUrl", "configPath", "leasePath"], path, issues);
   const executable = requiredAbsolutePath(value, "executable", path, issues);
-  const model = requiredString(value, "model", path, issues);
-  const contextTokens = requiredLiteral(value, "contextTokens", 262144, path, issues);
+  const model = requiredLiteral(value, "model", AO_LOCAL_MODEL, path, issues);
+  const contextTokens = requiredLiteral(value, "contextTokens", REQUIRED_LOCAL_CONTEXT, path, issues);
   const workdir = requiredAbsolutePath(value, "workdir", path, issues);
   const ollamaBaseUrl = requiredLocalUrl(value, "ollamaBaseUrl", path, issues);
   const configPath = requiredAbsolutePath(value, "configPath", path, issues);
-  if (executable !== undefined && model !== undefined && contextTokens !== undefined && workdir !== undefined && ollamaBaseUrl !== undefined && configPath !== undefined && !issuesForPath(issues, path)) {
-    return { executable, model, contextTokens, workdir, ollamaBaseUrl, configPath };
+  const leasePath = requiredAbsolutePath(value, "leasePath", path, issues);
+  if (executable !== undefined && model !== undefined && contextTokens !== undefined && workdir !== undefined && ollamaBaseUrl !== undefined && configPath !== undefined && leasePath !== undefined && !issuesForPath(issues, path)) {
+    return { executable, model, contextTokens, workdir, ollamaBaseUrl, configPath, leasePath };
   }
   return undefined;
 }
@@ -518,7 +530,7 @@ function validateCheckpoint(value: unknown, path: string, issues: ValidationIssu
     issues.push(issue(path, "must be an object"));
     return undefined;
   }
-  rejectUnknown(value, ["issueNumber", "taskId", "phase", "attempt", "sessionId", "branch", "worktree", "pid", "lastHead", "retryAt", "workerRole", "lifecycle", "review", "recovery", "planConflict", "runId", "workerProvider", "workerAdapter", "workerMode", "configuredPrimary", "configuredRecovery", "localModel", "processOutcome", "providerFallback"], path, issues);
+  rejectUnknown(value, ["issueNumber", "taskId", "phase", "attempt", "sessionId", "branch", "worktree", "pid", "lastHead", "retryAt", "workerRole", "lifecycle", "review", "recovery", "planConflict", "runId", "workerProvider", "workerAdapter", "workerMode", "configuredPrimary", "configuredRecovery", "localModel", "processOutcome", "providerFallback", "localLease"], path, issues);
   const issueNumber = requiredPositiveInteger(value, "issueNumber", path, issues);
   const taskId = requiredString(value, "taskId", path, issues);
   const phase = requiredEnum(value, "phase", CHECKPOINT_PHASES, path, issues);
@@ -543,8 +555,9 @@ function validateCheckpoint(value: unknown, path: string, issues: ValidationIssu
   const localModel = optionalSafeString(value, "localModel", path, issues);
   const processOutcome = optionalEnum(value, "processOutcome", WORKER_OUTCOMES, path, issues);
   const providerFallback = optionalProviderFallback(value.providerFallback, `${path}.providerFallback`, issues);
-  if (issueNumber !== undefined && taskId !== undefined && phase !== undefined && attempt !== undefined && sessionId !== undefined && branch !== undefined && worktree !== undefined && pid !== undefined && lastHead !== undefined && retryAt !== undefined && workerRole !== undefined && lifecycle !== undefined && review !== undefined && recovery !== undefined && planConflict !== undefined && runId !== undefined && workerProvider !== undefined && workerAdapter !== undefined && workerMode !== undefined && configuredPrimary !== undefined && configuredRecovery !== undefined && localModel !== undefined && processOutcome !== undefined && providerFallback !== undefined) {
-    return { issueNumber, taskId, phase, attempt, sessionId, branch, worktree, pid, lastHead, retryAt, ...(workerRole === null ? {} : { workerRole }), ...(lifecycle === null ? {} : { lifecycle }), ...(review === null ? {} : { review }), ...(recovery === null ? {} : { recovery }), ...(planConflict === null ? {} : { planConflict }), ...(runId === null ? {} : { runId }), ...(workerProvider === null ? {} : { workerProvider }), ...(workerAdapter === null ? {} : { workerAdapter }), ...(workerMode === null ? {} : { workerMode }), ...(configuredPrimary === null ? {} : { configuredPrimary }), ...(configuredRecovery === null ? {} : { configuredRecovery }), ...(localModel === null ? {} : { localModel }), ...(processOutcome === null ? {} : { processOutcome }), ...(providerFallback === null ? {} : { providerFallback }) };
+  const localLease = value.localLease === undefined ? null : validateLocalLease(value.localLease, `${path}.localLease`, issues);
+  if (issueNumber !== undefined && taskId !== undefined && phase !== undefined && attempt !== undefined && sessionId !== undefined && branch !== undefined && worktree !== undefined && pid !== undefined && lastHead !== undefined && retryAt !== undefined && workerRole !== undefined && lifecycle !== undefined && review !== undefined && recovery !== undefined && planConflict !== undefined && runId !== undefined && workerProvider !== undefined && workerAdapter !== undefined && workerMode !== undefined && configuredPrimary !== undefined && configuredRecovery !== undefined && localModel !== undefined && processOutcome !== undefined && providerFallback !== undefined && localLease !== undefined) {
+    return { issueNumber, taskId, phase, attempt, sessionId, branch, worktree, pid, lastHead, retryAt, ...(workerRole === null ? {} : { workerRole }), ...(lifecycle === null ? {} : { lifecycle }), ...(review === null ? {} : { review }), ...(recovery === null ? {} : { recovery }), ...(planConflict === null ? {} : { planConflict }), ...(runId === null ? {} : { runId }), ...(workerProvider === null ? {} : { workerProvider }), ...(workerAdapter === null ? {} : { workerAdapter }), ...(workerMode === null ? {} : { workerMode }), ...(configuredPrimary === null ? {} : { configuredPrimary }), ...(configuredRecovery === null ? {} : { configuredRecovery }), ...(localModel === null ? {} : { localModel }), ...(processOutcome === null ? {} : { processOutcome }), ...(providerFallback === null ? {} : { providerFallback }), ...(localLease === null ? {} : { localLease }) };
   }
   return undefined;
 }
@@ -627,6 +640,19 @@ function optionalProviderFallback(value: unknown, path: string, issues: Validati
   const reason = requiredEnum(value, "reason", ["RATE_LIMIT", "USAGE_LIMIT", "QUOTA_LIMIT"] as const, path, issues);
   const latched = requiredLiteral(value, "latched", true, path, issues);
   if (from !== undefined && to !== undefined && reason !== undefined && latched !== undefined && !issuesForPath(issues, path)) return { from, to, reason, latched };
+  return undefined;
+}
+
+function validateLocalLease(value: unknown, path: string, issues: ValidationIssue[]): NonNullable<Checkpoint["localLease"]> | null | undefined {
+  if (value === undefined) return null;
+  if (!isRecord(value)) { issues.push(issue(path, "must be an object")); return undefined; }
+  rejectUnknown(value, ["status", "owner", "model", "pid", "recoveredStale"], path, issues);
+  const status = requiredEnum(value, "status", ["acquired", "busy", "timeout", "malformed", "released", "release-skipped"] as const, path, issues);
+  const owner = requiredEnum(value, "owner", ["agent-orchestrator", "kiji"] as const, path, issues);
+  const model = requiredSafeString(value, "model", path, issues);
+  const pid = requiredPositiveInteger(value, "pid", path, issues);
+  const recoveredStale = value.recoveredStale === undefined ? null : requiredLiteral(value, "recoveredStale", true, path, issues);
+  if (status !== undefined && owner !== undefined && model !== undefined && pid !== undefined && recoveredStale !== undefined && !issuesForPath(issues, path)) return { status, owner, model, pid, ...(recoveredStale === null ? {} : { recoveredStale }) };
   return undefined;
 }
 

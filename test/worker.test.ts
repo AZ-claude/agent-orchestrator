@@ -18,11 +18,11 @@ function result(provider: "cloud" | "local", role: "primary" | "recovery", outco
 }
 
 test("cloud/local/auto selection and auto fallback latch/reset are deterministic", async () => {
-  const localConfig = { executable: "/tmp/opencode", model: "ollama/qwen3.6:35b", contextTokens: 262144, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/config" } as const;
+  const localConfig = { executable: "/tmp/opencode", model: "ollama/qwen3.8:latest", contextTokens: 262144, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/config", leasePath: "/tmp/agent-orchestrator-ollama.lease" } as const;
   const cloud = fake("cloud", [result("cloud", "primary", "availability-limit", "RATE_LIMIT"), result("cloud", "primary", "success")]);
   const local = fake("local", [result("local", "primary", "success"), result("local", "primary", "success")]);
   const router = new WorkerRunRouter({ mode: "auto", primary: "cloud", recovery: "local", local: localConfig });
-  const dispatcher = new WorkerDispatcher(router, { cloud, local });
+  const dispatcher = new WorkerDispatcher(router, { cloud, local }, async () => true);
   const first = await dispatcher.start("task", "/tmp", "primary");
   assert.equal(first.run.provider, "local");
   assert.equal(first.run.fresh, true);
@@ -39,7 +39,7 @@ test("local failure is returned without probing cloud again", async () => {
   let cloudStarts = 0;
   const cloud: ImplementationWorkerAdapter = { provider: "cloud", start: async () => { cloudStarts += 1; return result("cloud", "primary", "success"); }, resume: async () => result("cloud", "primary", "success"), startRecovery: async () => result("cloud", "recovery", "success"), retire: async () => false };
   const local = fake("local", [result("local", "primary", "spawn-error")]);
-  const dispatcher = new WorkerDispatcher(new WorkerRunRouter({ mode: "local", primary: "local", recovery: "local", local: { executable: "/tmp/opencode", model: "m", contextTokens: 262144, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/c" } }), { cloud, local });
+  const dispatcher = new WorkerDispatcher(new WorkerRunRouter({ mode: "local", primary: "local", recovery: "local", local: { executable: "/tmp/opencode", model: "m", contextTokens: 262144, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/c", leasePath: "/tmp/agent-orchestrator-ollama.lease" } }), { cloud, local }, async () => true);
   assert.equal((await dispatcher.start("task", "/tmp", "primary")).run.outcome, "spawn-error");
   assert.equal(cloudStarts, 0);
 });
@@ -49,7 +49,7 @@ test("local dispatch fails closed before process start when preflight is unavail
   const local = fake("local", [result("local", "primary", "success")]);
   const originalStart = local.start;
   local.start = async (...args) => { starts += 1; return originalStart(...args); };
-  const config = { mode: "local" as const, primary: "local" as const, recovery: "local" as const, local: { executable: "/tmp/opencode", model: "m", contextTokens: 262144 as const, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/c" } };
+  const config = { mode: "local" as const, primary: "local" as const, recovery: "local" as const, local: { executable: "/tmp/opencode", model: "m", contextTokens: 262144 as const, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/c", leasePath: "/tmp/agent-orchestrator-ollama.lease" } };
   const dispatcher = new WorkerDispatcher(new WorkerRunRouter(config), { cloud: fake("cloud", [result("cloud", "primary", "success")]), local }, async () => false);
   const dispatched = await dispatcher.start("task", "/tmp", "primary");
   assert.equal(dispatched.run.outcome, "failed");
@@ -59,7 +59,7 @@ test("local dispatch fails closed before process start when preflight is unavail
 test("ordinary cloud failure stays on cloud in auto mode", async () => {
   const local = fake("local", [result("local", "primary", "success")]);
   const cloud = fake("cloud", [result("cloud", "primary", "failed")]);
-  const dispatcher = new WorkerDispatcher(new WorkerRunRouter({ mode: "auto", primary: "cloud", recovery: "cloud", local: { executable: "/tmp/opencode", model: "m", contextTokens: 262144, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/c" } }), { cloud, local });
+  const dispatcher = new WorkerDispatcher(new WorkerRunRouter({ mode: "auto", primary: "cloud", recovery: "cloud", local: { executable: "/tmp/opencode", model: "m", contextTokens: 262144, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/c", leasePath: "/tmp/agent-orchestrator-ollama.lease" } }), { cloud, local });
   const run = await dispatcher.start("task", "/tmp", "primary");
   assert.equal(run.run.provider, "cloud");
   assert.equal(run.routing.latchedProvider, null);
@@ -79,8 +79,8 @@ test("cloud adapter preserves the existing Luna lifecycle behind the worker cont
 
 test("routed dispatch checkpoint contains provider, role, session and fallback facts", async () => {
   const root = await mkdtemp(join(tmpdir(), "ao-worker-state-"));
-  const localConfig = { executable: "/tmp/opencode", model: "ollama/qwen3.6:35b", contextTokens: 262144, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/config" } as const;
-  const dispatcher = new WorkerDispatcher(new WorkerRunRouter({ mode: "auto", primary: "cloud", recovery: "local", local: localConfig }), { cloud: fake("cloud", [result("cloud", "primary", "availability-limit", "QUOTA_LIMIT")]), local: fake("local", [result("local", "primary", "success")]) });
+  const localConfig = { executable: "/tmp/opencode", model: "ollama/qwen3.8:latest", contextTokens: 262144, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/config", leasePath: "/tmp/agent-orchestrator-ollama.lease" } as const;
+  const dispatcher = new WorkerDispatcher(new WorkerRunRouter({ mode: "auto", primary: "cloud", recovery: "local", local: localConfig }), { cloud: fake("cloud", [result("cloud", "primary", "availability-limit", "QUOTA_LIMIT")]), local: fake("local", [result("local", "primary", "success")]) }, async () => true);
   const checkpoints = new CheckpointStore(root);
   const base = { issueNumber: 1, taskId: "AO-32", phase: "luna" as const, attempt: 1, sessionId: null, branch: "agent/AO-32", worktree: "/tmp", pid: null, lastHead: null, retryAt: null };
   await new DurableWorkerRuntime(dispatcher, checkpoints).start({ checkpoint: base, prompt: "task", worktree: "/tmp", runId: "run-32", localModel: localConfig.model });
