@@ -68,7 +68,7 @@ tasks:
     test: npm test -- github runtime entrypoint config && npm run build && npm run lint
   - id: AO-49
     title: Build concrete Independent Reviewer transport
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-47]
     parallel: EXCLUSIVE
     humanGate: false
