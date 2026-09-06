@@ -1,0 +1,27 @@
+version: 2
+planningAuthority: Terra
+handoff:
+  id: agent-orchestrator-runtime-composition
+  source: docs/task-boards/2026-09-06-runtime-composition.md
+  board: docs/task-boards/2026-09-06-runtime-composition.md
+  targetRepo: /tmp/agent-orchestrator-disposable-target
+  baseBranch: main
+  implementationPromptTemplate: prompts/luna-implementation-task.md
+workerCompletionContract:
+  independentReview: required
+  reviewer: same-session-read-only-luna-subagent
+  reviewerContext: task-scope-source-head-review-packet-only
+  reviewerHistory: none
+  onRework: same-implementation-session-fix-validate-rereview
+  completion: reviewer-approve-required-before-merge
+  fallback: only-if-subagent-capability-unavailable
+tasks:
+  - id: AO-52-FINAL-E2E-20260907
+    title: Create e2e-final-20260907.txt containing the exact text disposable-final-pass
+    state: READY
+    dependsOn: []
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [e2e-final-20260907.txt]
+    completion: Worker creates e2e-final-20260907.txt with the exact disposable final acceptance marker.
+    test: sh -c 'test "$(cat e2e-final-20260907.txt)" = disposable-final-pass'
