@@ -118,7 +118,7 @@ tasks:
     test: npm test -- runtime checkpoint reconcile controller && restart-verification
   - id: AO-54
     title: Perform final executable acceptance before LaunchAgent gate
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-52, AO-53]
     parallel: EXCLUSIVE
     humanGate: false

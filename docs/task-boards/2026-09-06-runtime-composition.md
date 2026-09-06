@@ -1,6 +1,6 @@
 # AO-43+ runtime composition and disposable E2E
 
-Status: **PASS for AO-43〜AO-53; AO-54 PLANNED.** AO-48 was revised from a confirmed task-decomposition PLAN_CONFLICT, not an implementation failure or Human Gate. This phase is deliberately separate from AO-41/AO-42:
+Status: **PASS for AO-43〜AO-54.** AO-48 was revised from a confirmed task-decomposition PLAN_CONFLICT, not an implementation failure or Human Gate. This phase is deliberately separate from AO-41/AO-42:
 those tasks accepted fixed local-Qwen allocation only, not daemon operation.
 No task in this board may install, bootstrap, load, or register a LaunchAgent,
 or operate `/slot` or `/kiji` production resources.
@@ -130,7 +130,7 @@ AO-47 accepted composition
 
 ### AO-54 — Final executable acceptance
 
-- State: PLANNED; dependencies: AO-52, AO-53; parallel: EXCLUSIVE; Human
+- State: DONE; dependencies: AO-52, AO-53; parallel: EXCLUSIVE; Human
   Gate: none.
 - Run `npm test`, `npm run build`, `npm run lint`,
   `packaging/launchd/manage.sh verify`, a concrete entrypoint disposable
