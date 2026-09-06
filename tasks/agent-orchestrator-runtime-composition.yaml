@@ -18,7 +18,7 @@ workerCompletionContract:
 tasks:
   - id: AO-43
     title: Add safe runtime target configuration
-    state: IN_PROGRESS
+    state: DONE
     dependsOn: []
     parallel: EXCLUSIVE
     humanGate: false
@@ -26,7 +26,7 @@ tasks:
     test: npm test -- config
   - id: AO-44
     title: Compose durable poll and reconciliation
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-43]
     parallel: EXCLUSIVE
     humanGate: false
@@ -34,15 +34,15 @@ tasks:
     test: npm test -- runtime
   - id: AO-45
     title: Wire worker review merge lifecycle
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-44]
     parallel: EXCLUSIVE
     humanGate: false
-    allowedPaths: [src/runtime/**, src/controller/**, test/runtime.test.ts]
+    allowedPaths: [src/runtime/**, src/controller/**, src/worker/**, src/git/**, test/runtime.test.ts]
     test: npm test -- runtime
   - id: AO-46
     title: Prove disposable end to end and restart continuation
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-45]
     parallel: EXCLUSIVE
     humanGate: false
@@ -50,7 +50,7 @@ tasks:
     test: npm test -- runtime
   - id: AO-47
     title: Final acceptance of runtime composition
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-46]
     parallel: EXCLUSIVE
     humanGate: false

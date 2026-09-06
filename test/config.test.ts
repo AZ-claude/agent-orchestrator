@@ -10,6 +10,8 @@ import {
   manifestSchema,
   parseManifest,
   parseManifestForPilot,
+  parseRuntimeTargetConfig,
+  assertDisposableRuntimeTarget,
   parsePlanConflictClaim,
   parseReviewResult,
   SchemaValidationError,
@@ -53,6 +55,22 @@ test("worker config defaults to cloud and validates explicit local/auto choices"
   assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: { ...local.local, model: "ollama/qwen3.6:35b" } } }).success, false);
   assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: { ...local.local, leasePath: undefined } } }).success, false);
   assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: { ...local.local, ollamaBaseUrl: "http://user:pass@host:11434" } } }).success, false);
+});
+
+test("AO-43 accepts only an explicitly allowlisted disposable target and keeps production gated", () => {
+  const runtime = parseRuntimeTargetConfig({
+    target: "disposable",
+    disposable: { targetRepo: "/tmp/agent-orchestrator-fixtures/task-1", baseBranch: "main", allowedRoots: ["/tmp/agent-orchestrator-fixtures"] },
+    production: { enabled: false, targetRepo: "/Users/eita/projects/slot", baseBranch: "main" },
+  });
+  assert.equal(assertDisposableRuntimeTarget(runtime).targetRepo, "/tmp/agent-orchestrator-fixtures/task-1");
+  for (const targetRepo of ["/tmp/other", "/Users/eita/projects/slot", "/tmp/kiji-fixture"]) {
+    assert.throws(() => parseRuntimeTargetConfig({ ...runtime, disposable: { ...runtime.disposable, targetRepo } }), /allowlist|allowlisted|allowed disposable|slot|kiji/);
+  }
+  assert.throws(() => parseRuntimeTargetConfig({ ...runtime, disposable: { ...runtime.disposable, allowedRoots: ["/tmp/other"] } }), /allowed disposable/);
+  const production = parseRuntimeTargetConfig({ ...runtime, target: "production" });
+  assert.throws(() => assertDisposableRuntimeTarget(production), /production execution is not enabled/);
+  assert.throws(() => parseRuntimeTargetConfig({ ...runtime, production: { ...runtime.production, enabled: true } }), /must equal false/);
 });
 
 test("AO-36 contract fixes both owners, context, and safe lease lifecycle", async () => {
@@ -161,6 +179,11 @@ test("stateRoot must be outside the pilot repository", () => {
   assert.throws(() => configSchema.parse({ ...config, stateRoot: "/Users/eita/projects/slot/state" }), /outside the pilot target repository/);
   assert.throws(() => configSchema.parse({ ...config, stateRoot: "/Users/eita/projects/slot/../slot/state" }), /outside the pilot target repository/);
   assert.doesNotThrow(() => configSchema.parse({ ...config, stateRoot: "/Users/eita/projects/agent-orchestrator-state" }));
+});
+
+test("AO-43 keeps durable state outside the disposable target", () => {
+  const config = { ...defaultPilotConfig(), runtime: { target: "disposable" as const, disposable: { targetRepo: "/tmp/ao-target", baseBranch: "main", allowedRoots: ["/tmp"] }, production: { enabled: false as const, targetRepo: "/Users/eita/projects/slot", baseBranch: "main" } } };
+  assert.throws(() => configSchema.parse({ ...config, stateRoot: "/tmp/ao-target/state" }), /outside the disposable target/);
 });
 
 test("checkpoint schema contains only restart data and allows absent process values", () => {

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
-import { ManifestTask, PilotConfig, TaskManifest, parseManifestForPilot, SchemaValidationError } from "../config/index.js";
+import { ManifestTask, PilotConfig, TaskManifest, parseManifestForPilot, parseManifestForTarget as parseManifestForTargetConfig, SchemaValidationError } from "../config/index.js";
 
 export class ManifestGraphError extends Error {
   readonly issues: readonly { path: string; message: string }[];
@@ -76,7 +76,11 @@ export function taskMap(manifest: TaskManifest): ReadonlyMap<string, ManifestTas
 
 function parseManifestForTarget(raw: unknown, expectedTargetRepo?: string): TaskManifest {
   if (expectedTargetRepo === undefined) return parseManifestForPilotTarget(raw);
-  return parseManifestForPilot(raw, { pilot: { targetRepo: expectedTargetRepo } });
+  return parseManifestForTargetValue(raw, expectedTargetRepo);
+}
+
+function parseManifestForTargetValue(raw: unknown, expectedTargetRepo: string): TaskManifest {
+  return parseManifestForTargetConfig(raw, expectedTargetRepo);
 }
 
 function parseManifestForPilotTarget(raw: unknown): TaskManifest {

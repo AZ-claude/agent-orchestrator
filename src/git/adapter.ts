@@ -108,6 +108,10 @@ export class GitAdapter {
   }
   async fetch(repo: string, baseBranch: string): Promise<void> { await this.must(repo, ["fetch", "origin", baseBranch]); }
 
+  async removeWorktree(repo: string, worktree: string): Promise<void> {
+    await this.must(repo, ["worktree", "remove", "--force", worktree]);
+  }
+
   /** Pure deterministic gate evaluation. No semantic/reviewer decision is inferred. */
   evaluateMergeGates(facts: MergeGateFacts): MergeGateResult {
     const checks: Array<[string, boolean]> = [

@@ -13,6 +13,10 @@ export interface DurableWorkerDispatchOptions {
   readonly recoveryEvidence?: WorkerRecoveryEvidence;
 }
 
+export interface DurableWorkerResumeOptions extends DurableWorkerDispatchOptions {
+  readonly sessionId: string;
+}
+
 /** Dispatches through the router and atomically records only restart-safe facts. */
 export class DurableWorkerRuntime {
   constructor(private readonly dispatcher: WorkerDispatcher, private readonly checkpoints: CheckpointStore) {}
@@ -21,8 +25,21 @@ export class DurableWorkerRuntime {
     const dispatch = options.recoveryEvidence === undefined
       ? await this.dispatcher.start(options.prompt, options.worktree, options.checkpoint.workerRole ?? "primary")
       : await this.dispatcher.startRecovery(options.recoveryEvidence, options.prompt, options.worktree);
-    const checkpoint = addWorkerEvidence(options.checkpoint, dispatch, options.runId, options.localModel);
-    await this.checkpoints.save({ ...checkpoint, sessionId: dispatch.run.sessionId, pid: dispatch.run.pid ?? null, ...(dispatch.run.sessionId === null ? {} : { lifecycle: dispatch.run.resumable ? "RESUMABLE" as const : "RETIRED" as const }) });
+    return this.persist(options.checkpoint, dispatch, options.runId, options.localModel);
+  }
+
+  async resume(options: DurableWorkerResumeOptions): Promise<WorkerDispatchResult> {
+    const dispatch = await this.dispatcher.resume(options.sessionId, options.prompt, options.worktree, options.checkpoint.workerRole ?? "primary");
+    return this.persist(options.checkpoint, dispatch, options.runId, options.localModel);
+  }
+
+  async retire(pid?: number): Promise<boolean> {
+    return this.dispatcher.retire(pid);
+  }
+
+  private async persist(checkpoint: Checkpoint, dispatch: WorkerDispatchResult, runId: string, localModel?: string): Promise<WorkerDispatchResult> {
+    const enriched = addWorkerEvidence(checkpoint, dispatch, runId, localModel);
+    await this.checkpoints.save({ ...enriched, sessionId: dispatch.run.sessionId, pid: dispatch.run.pid ?? null, ...(dispatch.run.sessionId === null ? {} : { lifecycle: dispatch.run.resumable ? "RESUMABLE" as const : "RETIRED" as const }) });
     return dispatch;
   }
 }

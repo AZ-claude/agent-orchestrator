@@ -76,8 +76,29 @@ export interface PilotConfig {
   readonly maxLunaWorkers: number;
   readonly maxResumeAttempts: number;
   readonly retryIntervalMs: number;
+  /** AO-43 runtime target boundary. Omitted for legacy read-only commands. */
+  readonly runtime?: RuntimeTargetConfig;
   /** Omitted means the backwards-compatible cloud-only route. */
   readonly worker?: WorkerConfig;
+}
+
+export interface DisposableTargetConfig {
+  readonly targetRepo: string;
+  readonly baseBranch: string;
+  readonly allowedRoots: readonly string[];
+}
+
+export interface ProductionTargetConfig {
+  /** Production execution is deliberately disabled until a future gate exists. */
+  readonly enabled: false;
+  readonly targetRepo: string;
+  readonly baseBranch: string;
+}
+
+export interface RuntimeTargetConfig {
+  readonly target: "disposable" | "production";
+  readonly disposable: DisposableTargetConfig;
+  readonly production: ProductionTargetConfig;
 }
 
 export interface LocalWorkerConfig {
@@ -188,6 +209,10 @@ export interface Checkpoint {
   readonly pid: number | null;
   readonly lastHead: string | null;
   readonly retryAt: string | null;
+  /** Authoritative lifecycle state; Issue labels are only a projection. */
+  readonly executionState?: ExecutionState;
+  /** The exact source HEAD that received semantic reviewer approval. */
+  readonly reviewedHead?: string;
   readonly workerRole?: WorkerRole;
   readonly lifecycle?: SessionLifecycle;
   readonly review?: ReviewFact;
@@ -255,8 +280,24 @@ export function parsePilotConfig(value: unknown): PilotConfig {
   return parseWith("pilot config", value, validatePilotConfig);
 }
 
+/** Parse and validate the AO-43 runtime boundary independently of legacy pilot config. */
+export function parseRuntimeTargetConfig(value: unknown): RuntimeTargetConfig {
+  return parseWith("runtime target config", value, validateRuntimeTargetConfig);
+}
+
+/** Runtime execution has one safe mode today; production is intentionally gated. */
+export function assertDisposableRuntimeTarget(config: RuntimeTargetConfig): DisposableTargetConfig {
+  if (config.target !== "disposable") throw new SchemaValidationError("runtime target config", [{ path: "$.target", message: "production execution is not enabled" }]);
+  return config.disposable;
+}
+
 export function parseManifest(value: unknown): TaskManifest {
   return parseWith("task manifest", value, (input, path, issues) => validateManifest(input, path, issues, PILOT_TARGET_REPO));
+}
+
+/** Parse a manifest for an explicitly validated disposable runtime target. */
+export function parseManifestForTarget(value: unknown, targetRepo: string): TaskManifest {
+  return parseWith("task manifest", value, (input, path, issues) => validateManifest(input, path, issues, targetRepo));
 }
 
 export function parseManifestForPilot(value: unknown, config: { readonly pilot: Pick<PilotConfig["pilot"], "targetRepo"> }): TaskManifest {
@@ -352,7 +393,7 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
     issues.push(issue(path, "must be an object"));
     return undefined;
   }
-  rejectUnknown(value, ["version", "pilot", "stateRoot", "pollIntervalMs", "maxLunaWorkers", "maxResumeAttempts", "retryIntervalMs", "worker"], path, issues);
+  rejectUnknown(value, ["version", "pilot", "stateRoot", "pollIntervalMs", "maxLunaWorkers", "maxResumeAttempts", "retryIntervalMs", "runtime", "worker"], path, issues);
   const version = requiredLiteral(value, "version", 1, path, issues);
   const pilot = requiredRecord(value, "pilot", path, issues);
   const stateRoot = requiredAbsolutePathOutside(value, "stateRoot", PILOT_TARGET_REPO, path, issues);
@@ -360,7 +401,11 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
   const maxLunaWorkers = requiredPositiveInteger(value, "maxLunaWorkers", path, issues);
   const maxResumeAttempts = requiredNonNegativeInteger(value, "maxResumeAttempts", path, issues);
   const retryIntervalMs = requiredPositiveInteger(value, "retryIntervalMs", path, issues);
+  const runtime = value.runtime === undefined ? null : validateRuntimeTargetConfig(value.runtime, `${path}.runtime`, issues);
   const worker = value.worker === undefined ? null : validateWorkerConfig(value.worker, `${path}.worker`, issues);
+  if (runtime !== null && runtime !== undefined && stateRoot !== undefined && isWithinPath(stateRoot, runtime.disposable.targetRepo)) {
+    issues.push(issue(`${path}.stateRoot`, "must be outside the disposable target repository"));
+  }
 
   if (pilot) {
     rejectUnknown(pilot, ["targetRepo", "baseBranch", "manifestPath", "boardPath"], `${path}.pilot`, issues);
@@ -381,10 +426,49 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
     maxLunaWorkers !== undefined &&
     maxResumeAttempts !== undefined &&
     retryIntervalMs !== undefined &&
-    worker !== undefined
+    worker !== undefined &&
+    runtime !== undefined
   ) {
-    return { version, pilot: { targetRepo, baseBranch, manifestPath, boardPath }, stateRoot, pollIntervalMs, maxLunaWorkers, maxResumeAttempts, retryIntervalMs, ...(worker === null ? {} : { worker }) };
+    return { version, pilot: { targetRepo, baseBranch, manifestPath, boardPath }, stateRoot, pollIntervalMs, maxLunaWorkers, maxResumeAttempts, retryIntervalMs, ...(runtime === null ? {} : { runtime }), ...(worker === null ? {} : { worker }) };
   }
+  return undefined;
+}
+
+function validateRuntimeTargetConfig(value: unknown, path: string, issues: ValidationIssue[]): RuntimeTargetConfig | undefined {
+  if (!isRecord(value)) { issues.push(issue(path, "must be an object")); return undefined; }
+  rejectUnknown(value, ["target", "disposable", "production"], path, issues);
+  const target = requiredEnum(value, "target", ["disposable", "production"] as const, path, issues);
+  const disposable = requiredRecord(value, "disposable", path, issues);
+  const production = requiredRecord(value, "production", path, issues);
+  const disposableValue = disposable === undefined ? undefined : validateDisposableTargetConfig(disposable, `${path}.disposable`, issues);
+  const productionValue = production === undefined ? undefined : validateProductionTargetConfig(production, `${path}.production`, issues);
+  if (target !== undefined && disposableValue !== undefined && productionValue !== undefined && !issuesForPath(issues, path)) return { target, disposable: disposableValue, production: productionValue };
+  return undefined;
+}
+
+function validateDisposableTargetConfig(value: Record<string, unknown>, path: string, issues: ValidationIssue[]): DisposableTargetConfig | undefined {
+  rejectUnknown(value, ["targetRepo", "baseBranch", "allowedRoots"], path, issues);
+  const targetRepo = requiredAbsolutePath(value, "targetRepo", path, issues);
+  const baseBranch = requiredString(value, "baseBranch", path, issues);
+  const roots = requiredAbsolutePathArray(value, "allowedRoots", path, issues);
+  if (targetRepo !== undefined && roots !== undefined) {
+    if (isForbiddenRuntimePath(targetRepo)) issues.push(issue(`${path}.targetRepo`, "must not be /slot or /kiji, including descendants"));
+    for (const [index, root] of roots.entries()) {
+      if (isForbiddenRuntimePath(root)) issues.push(issue(`${path}.allowedRoots[${index}]`, "must not include /slot or /kiji, including descendants"));
+      if (resolve(root) === "/") issues.push(issue(`${path}.allowedRoots[${index}]`, "must be a bounded allowlist root"));
+    }
+    if (!roots.some((root) => isWithinPath(targetRepo, root))) issues.push(issue(`${path}.targetRepo`, "must be inside an allowed disposable target root"));
+  }
+  if (targetRepo !== undefined && baseBranch !== undefined && roots !== undefined && !issuesForPath(issues, path)) return { targetRepo, baseBranch, allowedRoots: roots };
+  return undefined;
+}
+
+function validateProductionTargetConfig(value: Record<string, unknown>, path: string, issues: ValidationIssue[]): ProductionTargetConfig | undefined {
+  rejectUnknown(value, ["enabled", "targetRepo", "baseBranch"], path, issues);
+  const enabled = requiredLiteral(value, "enabled", false, path, issues);
+  const targetRepo = requiredAbsolutePath(value, "targetRepo", path, issues);
+  const baseBranch = requiredString(value, "baseBranch", path, issues);
+  if (enabled !== undefined && targetRepo !== undefined && baseBranch !== undefined && !issuesForPath(issues, path)) return { enabled, targetRepo, baseBranch };
   return undefined;
 }
 
@@ -530,7 +614,7 @@ function validateCheckpoint(value: unknown, path: string, issues: ValidationIssu
     issues.push(issue(path, "must be an object"));
     return undefined;
   }
-  rejectUnknown(value, ["issueNumber", "taskId", "phase", "attempt", "sessionId", "branch", "worktree", "pid", "lastHead", "retryAt", "workerRole", "lifecycle", "review", "recovery", "planConflict", "runId", "workerProvider", "workerAdapter", "workerMode", "configuredPrimary", "configuredRecovery", "localModel", "processOutcome", "providerFallback", "localLease"], path, issues);
+  rejectUnknown(value, ["issueNumber", "taskId", "phase", "attempt", "sessionId", "branch", "worktree", "pid", "lastHead", "retryAt", "executionState", "reviewedHead", "workerRole", "lifecycle", "review", "recovery", "planConflict", "runId", "workerProvider", "workerAdapter", "workerMode", "configuredPrimary", "configuredRecovery", "localModel", "processOutcome", "providerFallback", "localLease"], path, issues);
   const issueNumber = requiredPositiveInteger(value, "issueNumber", path, issues);
   const taskId = requiredString(value, "taskId", path, issues);
   const phase = requiredEnum(value, "phase", CHECKPOINT_PHASES, path, issues);
@@ -541,6 +625,8 @@ function validateCheckpoint(value: unknown, path: string, issues: ValidationIssu
   const pid = requiredNullablePositiveInteger(value, "pid", path, issues);
   const lastHead = requiredNullableString(value, "lastHead", path, issues);
   const retryAt = requiredNullableIsoDate(value, "retryAt", path, issues);
+  const executionState = optionalEnum(value, "executionState", EXECUTION_STATES, path, issues);
+  const reviewedHead = optionalSafeString(value, "reviewedHead", path, issues);
   const workerRole = optionalEnum(value, "workerRole", WORKER_ROLES, path, issues);
   const lifecycle = optionalEnum(value, "lifecycle", SESSION_LIFECYCLES, path, issues);
   const review = optionalReviewFact(value.review, `${path}.review`, issues);
@@ -556,8 +642,8 @@ function validateCheckpoint(value: unknown, path: string, issues: ValidationIssu
   const processOutcome = optionalEnum(value, "processOutcome", WORKER_OUTCOMES, path, issues);
   const providerFallback = optionalProviderFallback(value.providerFallback, `${path}.providerFallback`, issues);
   const localLease = value.localLease === undefined ? null : validateLocalLease(value.localLease, `${path}.localLease`, issues);
-  if (issueNumber !== undefined && taskId !== undefined && phase !== undefined && attempt !== undefined && sessionId !== undefined && branch !== undefined && worktree !== undefined && pid !== undefined && lastHead !== undefined && retryAt !== undefined && workerRole !== undefined && lifecycle !== undefined && review !== undefined && recovery !== undefined && planConflict !== undefined && runId !== undefined && workerProvider !== undefined && workerAdapter !== undefined && workerMode !== undefined && configuredPrimary !== undefined && configuredRecovery !== undefined && localModel !== undefined && processOutcome !== undefined && providerFallback !== undefined && localLease !== undefined) {
-    return { issueNumber, taskId, phase, attempt, sessionId, branch, worktree, pid, lastHead, retryAt, ...(workerRole === null ? {} : { workerRole }), ...(lifecycle === null ? {} : { lifecycle }), ...(review === null ? {} : { review }), ...(recovery === null ? {} : { recovery }), ...(planConflict === null ? {} : { planConflict }), ...(runId === null ? {} : { runId }), ...(workerProvider === null ? {} : { workerProvider }), ...(workerAdapter === null ? {} : { workerAdapter }), ...(workerMode === null ? {} : { workerMode }), ...(configuredPrimary === null ? {} : { configuredPrimary }), ...(configuredRecovery === null ? {} : { configuredRecovery }), ...(localModel === null ? {} : { localModel }), ...(processOutcome === null ? {} : { processOutcome }), ...(providerFallback === null ? {} : { providerFallback }), ...(localLease === null ? {} : { localLease }) };
+  if (issueNumber !== undefined && taskId !== undefined && phase !== undefined && attempt !== undefined && sessionId !== undefined && branch !== undefined && worktree !== undefined && pid !== undefined && lastHead !== undefined && retryAt !== undefined && executionState !== undefined && reviewedHead !== undefined && workerRole !== undefined && lifecycle !== undefined && review !== undefined && recovery !== undefined && planConflict !== undefined && runId !== undefined && workerProvider !== undefined && workerAdapter !== undefined && workerMode !== undefined && configuredPrimary !== undefined && configuredRecovery !== undefined && localModel !== undefined && processOutcome !== undefined && providerFallback !== undefined && localLease !== undefined) {
+    return { issueNumber, taskId, phase, attempt, sessionId, branch, worktree, pid, lastHead, retryAt, ...(executionState === null ? {} : { executionState }), ...(reviewedHead === null ? {} : { reviewedHead }), ...(workerRole === null ? {} : { workerRole }), ...(lifecycle === null ? {} : { lifecycle }), ...(review === null ? {} : { review }), ...(recovery === null ? {} : { recovery }), ...(planConflict === null ? {} : { planConflict }), ...(runId === null ? {} : { runId }), ...(workerProvider === null ? {} : { workerProvider }), ...(workerAdapter === null ? {} : { workerAdapter }), ...(workerMode === null ? {} : { workerMode }), ...(configuredPrimary === null ? {} : { configuredPrimary }), ...(configuredRecovery === null ? {} : { configuredRecovery }), ...(localModel === null ? {} : { localModel }), ...(processOutcome === null ? {} : { processOutcome }), ...(providerFallback === null ? {} : { providerFallback }), ...(localLease === null ? {} : { localLease }) };
   }
   return undefined;
 }
@@ -747,6 +833,18 @@ function requiredAbsolutePath(value: Record<string, unknown>, key: string, path:
   return candidate;
 }
 
+function requiredAbsolutePathArray(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): readonly string[] | undefined {
+  const candidates = requiredArray(value, key, path, issues);
+  if (candidates === undefined) return undefined;
+  const paths: string[] = [];
+  for (const [index, candidate] of candidates.entries()) {
+    if (typeof candidate !== "string" || candidate.trim() === "" || !isAbsolute(candidate)) issues.push(issue(`${path}.${key}[${index}]`, "must be an absolute path"));
+    else paths.push(candidate);
+  }
+  if (paths.length === 0) issues.push(issue(`${path}.${key}`, "must contain at least one absolute path"));
+  return paths.length === candidates.length && paths.length > 0 ? paths : undefined;
+}
+
 function requiredLocalUrl(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): string | undefined {
   const candidate = requiredString(value, key, path, issues);
   if (candidate === undefined) return undefined;
@@ -788,6 +886,10 @@ function requiredAbsolutePathOutside(value: Record<string, unknown>, key: string
     return undefined;
   }
   return candidate;
+}
+
+function isForbiddenRuntimePath(candidate: string): boolean {
+  return resolve(candidate).split("/").some((segment) => segment === "slot" || segment === "kiji");
 }
 
 function requiredRelativePath(value: Record<string, unknown>, key: string, path: string, issues: ValidationIssue[]): string | undefined {

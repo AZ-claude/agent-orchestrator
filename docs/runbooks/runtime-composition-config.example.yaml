@@ -1,0 +1,23 @@
+version: 1
+pilot:
+  # Legacy pilot identity remains fixed; AO-43+ execution uses runtime below.
+  targetRepo: /Users/eita/projects/slot
+  baseBranch: main
+  manifestPath: tasks/agent-orchestrator-runtime-composition.yaml
+  boardPath: docs/task-boards/2026-09-06-runtime-composition.md
+stateRoot: /tmp/agent-orchestrator-runtime-state
+pollIntervalMs: 30000
+maxLunaWorkers: 2
+maxResumeAttempts: 2
+retryIntervalMs: 300000
+runtime:
+  target: disposable
+  disposable:
+    targetRepo: /tmp/agent-orchestrator-disposable-target
+    baseBranch: main
+    allowedRoots:
+      - /tmp
+  production:
+    enabled: false
+    targetRepo: /Users/eita/projects/slot
+    baseBranch: main

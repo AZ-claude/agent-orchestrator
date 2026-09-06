@@ -2,19 +2,22 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { CheckpointStore } from "../checkpoint/index.js";
-import { Checkpoint, parseManifest, parsePilotConfig, PILOT_TARGET_REPO, PilotConfig, TaskManifest } from "../config/index.js";
+import { Checkpoint, parseManifest, parseManifestForTarget, parsePilotConfig, PILOT_TARGET_REPO, PilotConfig, TaskManifest } from "../config/index.js";
 import { CliGhClient, GhClient, GitHubIssueProjector } from "../github/index.js";
 import { reconcile } from "../reconcile/index.js";
 import { DeterministicScheduler, schedulerTasks } from "../scheduler/index.js";
 import { CliOperations } from "./cli.js";
 import { PrivacySafeLogger } from "../logging/index.js";
 import { preflightLocalWorker } from "../opencode/index.js";
+import { RuntimeComposition } from "../runtime/index.js";
 
 export interface CliAppOptions {
   readonly cwd?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly gh?: GhClient;
   readonly logger?: PrivacySafeLogger;
+  /** Supplies the already-loaded runtime composition for AO-43+ execution. */
+  readonly runtimeFactory?: (runtime: LoadedRuntime) => RuntimeComposition;
 }
 
 export interface LoadedRuntime {
@@ -22,6 +25,7 @@ export interface LoadedRuntime {
   readonly config: PilotConfig;
   readonly manifest: TaskManifest;
   readonly checkpoints: readonly Checkpoint[];
+  readonly runtimeTarget?: PilotConfig["runtime"];
 }
 
 const SUPPORTED_DELTA_MANIFEST_IDS = new Set(["agent-orchestrator-preinstall-delta", "agent-orchestrator-qwen-opencode-worker-preinstall-delta"]);
@@ -44,10 +48,13 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
     if (config.pilot.targetRepo !== PILOT_TARGET_REPO) throw new Error(`configured pilot target must equal ${PILOT_TARGET_REPO}`);
     const manifestPath = resolve(root, config.pilot.manifestPath);
     if (!isWithin(root, manifestPath)) throw new Error("manifest path must remain inside the repository");
-    const manifest = parseManifest(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath));
-    if (manifest.version !== 2 || !SUPPORTED_DELTA_MANIFEST_IDS.has(manifest.handoff.id)) throw new Error("entrypoint requires a supported canonical version 2 pre-install delta manifest");
+    const manifest = config.runtime
+      ? parseManifestForTarget(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath), config.runtime.disposable.targetRepo)
+      : parseManifest(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath));
+    const supported = config.runtime ? manifest.version === 2 && manifest.handoff.id === "agent-orchestrator-runtime-composition" : manifest.version === 2 && SUPPORTED_DELTA_MANIFEST_IDS.has(manifest.handoff.id);
+    if (!supported) throw new Error("entrypoint requires a supported canonical version 2 manifest");
     const checkpoints = await new CheckpointStore(config.stateRoot).list();
-    return { root, config, manifest, checkpoints };
+    return { root, config, manifest, checkpoints, ...(config.runtime === undefined ? {} : { runtimeTarget: config.runtime }) };
   };
 
   return {
@@ -58,6 +65,12 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
     },
     runOnce: async () => {
       const runtime = await load();
+      if (runtime.config.runtime !== undefined) {
+        if (options.runtimeFactory === undefined) throw new Error("runtime composition is unavailable; provide an AO-43+ runtime factory");
+        const result = await options.runtimeFactory(runtime).poll();
+        logger.info("run_once_complete", { kind: result.kind, ...(result.taskId === undefined ? {} : { taskId: result.taskId }) });
+        return;
+      }
       const issues = await new GitHubIssueProjector(gh).readOpen();
       const issueByTask = new Map(runtime.manifest.tasks.map((task) => [task.id, issues.find((issue) => issue.body.includes(`agent-orchestrator:task=${task.id}`))]));
       const states = new Map(runtime.checkpoints.map((checkpoint) => [checkpoint.taskId, checkpoint.phase === "luna" ? "running" as const : "reviewing" as const]));
@@ -96,9 +109,12 @@ export async function loadRuntime(options: CliAppOptions = {}): Promise<LoadedRu
   const configPath = requiredAbsoluteEnv(env, "AO_CONFIG_PATH");
   const config = parsePilotConfig(parseDocument(await readFile(configPath, "utf8"), configPath));
   const manifestPath = resolve(cwd, config.pilot.manifestPath);
-  const manifest = parseManifest(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath));
-  if (manifest.version !== 2 || !SUPPORTED_DELTA_MANIFEST_IDS.has(manifest.handoff.id)) throw new Error("entrypoint requires a supported canonical version 2 pre-install delta manifest");
-  return { root: cwd, config, manifest, checkpoints: await new CheckpointStore(config.stateRoot).list() };
+  const manifest = config.runtime
+    ? parseManifestForTarget(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath), config.runtime.disposable.targetRepo)
+    : parseManifest(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath));
+  const supported = config.runtime ? manifest.version === 2 && manifest.handoff.id === "agent-orchestrator-runtime-composition" : manifest.version === 2 && SUPPORTED_DELTA_MANIFEST_IDS.has(manifest.handoff.id);
+  if (!supported) throw new Error("entrypoint requires a supported canonical version 2 manifest");
+  return { root: cwd, config, manifest, checkpoints: await new CheckpointStore(config.stateRoot).list(), ...(config.runtime === undefined ? {} : { runtimeTarget: config.runtime }) };
 }
 
 function parseDocument(source: string, path: string): unknown {

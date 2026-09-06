@@ -37,3 +37,13 @@ test("concrete run-once composition uses a fake Issue boundary and never starts 
   await operations.runOnce();
   assert.equal(calls, 1);
 });
+
+test("AO-43+ config selects the disposable runtime composition explicitly", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "ao-runtime-config-state-"));
+  const configPath = join(stateRoot, "config.yaml");
+  await writeFile(configPath, `version: 1\npilot:\n  targetRepo: /Users/eita/projects/slot\n  baseBranch: main\n  manifestPath: tasks/agent-orchestrator-runtime-composition.yaml\n  boardPath: docs/task-boards/2026-09-06-runtime-composition.md\nstateRoot: ${stateRoot}\npollIntervalMs: 30000\nmaxLunaWorkers: 2\nmaxResumeAttempts: 2\nretryIntervalMs: 300000\nruntime:\n  target: disposable\n  disposable:\n    targetRepo: /tmp/agent-orchestrator-disposable-target\n    baseBranch: main\n    allowedRoots: [/tmp]\n  production:\n    enabled: false\n    targetRepo: /Users/eita/projects/slot\n    baseBranch: main\n`);
+  let invoked = 0;
+  const operations = createCliOperations({ cwd: root, env: { AO_CONFIG_PATH: configPath }, runtimeFactory: () => { invoked += 1; return { poll: async () => ({ kind: "idle" }) } as never; } });
+  await operations.runOnce();
+  assert.equal(invoked, 1);
+});

@@ -97,6 +97,12 @@ export class WorkerDispatcher {
     return { run, routing: this.router.state };
   }
 
+  async retire(pid?: number): Promise<boolean> {
+    if (pid === undefined) return false;
+    const provider = this.router.providerFor("primary");
+    return this.adapter(provider).retire(pid);
+  }
+
   private adapter(provider: WorkerProvider): ImplementationWorkerAdapter {
     const adapter = this.adapters[provider];
     if (adapter.provider !== provider) throw new Error(`worker adapter/provider mismatch: ${provider}`);

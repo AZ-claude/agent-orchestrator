@@ -41,3 +41,17 @@ test("AO-35 records whole-product Qwen/OpenCode acceptance and real 256K pilot",
     assert.match(manifest, new RegExp(`- id: AO-${number}\\n[\\s\\S]*?state: DONE`));
   }
 });
+
+test("AO-47 records dependency-ordered runtime-composition acceptance", async () => {
+  const board = await readFile("docs/task-boards/2026-09-06-runtime-composition.md", "utf8");
+  const manifest = await readFile("tasks/agent-orchestrator-runtime-composition.yaml", "utf8");
+  const acceptance = await readFile("docs/agent-runs/ao-47-final-terra-acceptance.md", "utf8");
+  assert.match(board, /Status: \*\*PASS/);
+  for (let number = 43; number <= 47; number += 1) {
+    assert.match(board, new RegExp(`### AO-${number}[^\\n]*\\n\\n- State: DONE`));
+    assert.match(manifest, new RegExp(`- id: AO-${number}\\n[\\s\\S]*?state: DONE`));
+    assert.match(await readFile(`docs/agent-runs/ao-${number}-independent-review.md`, "utf8").catch(() => acceptance), /APPROVE|PASS/);
+  }
+  assert.match(acceptance, /Terra decision: \*\*PASS/);
+  assert.match(acceptance, /LaunchAgent/);
+});

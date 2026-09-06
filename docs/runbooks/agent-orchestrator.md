@@ -19,6 +19,14 @@ infers semantic approval and does not invoke an LLM while polling, scheduling,
 validation, or merge-gate evaluation runs. It never modifies production data or
 schedulers.
 
+For the AO-43+ runtime-composition phase, add the explicit `runtime` block from
+`runtime-composition-config.example.yaml`. Its `disposable.targetRepo` must be
+inside `allowedRoots`; `/slot` and `/kiji` are rejected. The `production` block
+is retained as a future declaration but is hard-disabled (`enabled: false`), and
+the runtime refuses to execute it. A runtime `run-once` requires an injected
+composition with an Independent Reviewer boundary; absent that boundary it
+fails closed before dispatch.
+
 ## Failure diagnosis
 
 1. Inspect `status` and the privacy-safe JSON log.
