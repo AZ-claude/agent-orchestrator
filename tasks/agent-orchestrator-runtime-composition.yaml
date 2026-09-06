@@ -78,7 +78,7 @@ tasks:
     test: npm test -- controller runtime entrypoint && npm run build && npm run lint
   - id: AO-50
     title: Build the concrete Worker runtime factory
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-47]
     parallel: EXCLUSIVE
     humanGate: false

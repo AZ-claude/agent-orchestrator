@@ -10,14 +10,36 @@ pollIntervalMs: 30000
 maxLunaWorkers: 2
 maxResumeAttempts: 2
 retryIntervalMs: 300000
+worker:
+  mode: cloud
+  primary: cloud
+  recovery: cloud
+# For a Mac local-Qwen runtime, replace the cloud block above with the exact
+# fixed contract below. `preflight` checks these paths and the live Ollama
+# facts before a lease is acquired; OpenCode is never started on failure.
+# worker:
+#   mode: local # or auto (with primary: cloud, recovery: local)
+#   primary: local
+#   recovery: local
+#   local:
+#     executable: /Users/YOU/.opencode/bin/opencode
+#     model: ollama/qwen3.8:latest
+#     contextTokens: 262144
+#     workdir: /Users/YOU/projects/disposable-agent-orchestrator-target
+#     ollamaBaseUrl: http://127.0.0.1:11434
+#     configPath: /Users/YOU/.config/opencode/opencode.jsonc
+#     # Shared with other local inference clients; do not use a repo-local path.
+#     leasePath: /Users/YOU/.local/state/ollama-inference/lease
 runtime:
   target: disposable
   disposable:
     targetRepo: /tmp/agent-orchestrator-disposable-target
     baseBranch: main
+    githubRepo: YOUR_ORG/agent-orchestrator-disposable
     allowedRoots:
       - /tmp
   production:
     enabled: false
     targetRepo: /Users/eita/projects/slot
     baseBranch: main
+    githubRepo: AZ-claude/slot

@@ -1,6 +1,6 @@
 # AO-43+ runtime composition and disposable E2E
 
-Status: **PASS for AO-43〜AO-49; AO-50〜AO-54 PLANNED.** AO-48 was revised from a confirmed task-decomposition PLAN_CONFLICT, not an implementation failure or Human Gate. This phase is deliberately separate from AO-41/AO-42:
+Status: **PASS for AO-43〜AO-50; AO-51〜AO-54 PLANNED.** AO-48 was revised from a confirmed task-decomposition PLAN_CONFLICT, not an implementation failure or Human Gate. This phase is deliberately separate from AO-41/AO-42:
 those tasks accepted fixed local-Qwen allocation only, not daemon operation.
 No task in this board may install, bootstrap, load, or register a LaunchAgent,
 or operate `/slot` or `/kiji` production resources.
@@ -89,7 +89,7 @@ AO-47 accepted composition
 
 ### AO-50 — Concrete Worker runtime factory
 
-- State: PLANNED; dependencies: AO-47; parallel: EXCLUSIVE; Human Gate: none.
+- State: DONE; dependencies: AO-47; parallel: EXCLUSIVE; Human Gate: none.
 - Assemble the existing LunaRunner, cloud/local adapters, router, dispatcher,
   and durable worker runtime from config. Preserve cloud/local/auto behavior;
   local is `ollama/qwen3.8:latest` at 262144 with preflight and shared lease.

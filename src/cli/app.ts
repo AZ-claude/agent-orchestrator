@@ -3,20 +3,28 @@ import { isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { CheckpointStore } from "../checkpoint/index.js";
 import { Checkpoint, parseManifest, parseManifestForTarget, parsePilotConfig, PILOT_TARGET_REPO, PilotConfig, TaskManifest } from "../config/index.js";
-import { CliGhClient, GhClient, GitHubIssueProjector } from "../github/index.js";
+import { CliGhClient, GhClient, GitHubIssueProjector, TargetAwareGhClient } from "../github/index.js";
 import { reconcile } from "../reconcile/index.js";
 import { DeterministicScheduler, schedulerTasks } from "../scheduler/index.js";
 import { CliOperations } from "./cli.js";
 import { PrivacySafeLogger } from "../logging/index.js";
 import { preflightLocalWorker } from "../opencode/index.js";
-import { RuntimeComposition } from "../runtime/index.js";
+import { RuntimeComposition, createRuntimeIssueBoundary } from "../runtime/index.js";
+import { assertDisposableRuntimeTarget, AO_LOCAL_MODEL, REQUIRED_LOCAL_CONTEXT } from "../config/index.js";
+import { GitAdapter, defaultCommandRunner } from "../git/index.js";
+import { CloudWorkerAdapter } from "../worker/cloud.js";
+import { DurableWorkerRuntime, WorkerDispatcher, WorkerRunRouter } from "../worker/index.js";
+import { LunaRunner } from "../luna/index.js";
+import { OpenCodeWorkerAdapter } from "../opencode/index.js";
+import { codexSessionExists } from "../codex/index.js";
+import { CodexReadOnlyReviewer } from "../controller/index.js";
 
 export interface CliAppOptions {
   readonly cwd?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly gh?: GhClient;
   readonly logger?: PrivacySafeLogger;
-  /** Supplies the already-loaded runtime composition for AO-43+ execution. */
+  /** Test-only composition override; production uses the concrete factory below. */
   readonly runtimeFactory?: (runtime: LoadedRuntime) => RuntimeComposition;
 }
 
@@ -99,6 +107,56 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
       if (!result.pass) throw new Error("local worker preflight failed");
     },
   };
+}
+
+/** Build every runtime dependency from the selected, explicitly named target. */
+export function createConcreteRuntime(runtime: LoadedRuntime, injectedGh?: GhClient): RuntimeComposition {
+  const targetConfig = runtime.config.runtime;
+  if (targetConfig === undefined) throw new Error("runtime target configuration is required");
+  const target = assertDisposableRuntimeTarget(targetConfig);
+  const repository = target.githubRepo;
+  if (repository === undefined) throw new Error("disposable runtime target must explicitly declare githubRepo");
+  const gh = injectedGh === undefined ? new TargetAwareGhClient(defaultCommandRunner, repository) : requireTargetAwareGh(injectedGh, repository);
+  const router = new WorkerRunRouter(runtime.config.worker);
+  const cloud = new CloudWorkerAdapter(new LunaRunner(undefined, { maxResumeAttempts: runtime.config.maxResumeAttempts }));
+  const localConfig = runtime.config.worker?.local;
+  const localPreflight = async () => localConfig !== undefined && (await preflightLocalWorker(localConfig)).pass;
+  const local = new OpenCodeWorkerAdapter(undefined, {
+    executable: localConfig?.executable ?? "opencode",
+    model: localConfig?.model ?? AO_LOCAL_MODEL,
+    contextTokens: localConfig?.contextTokens ?? REQUIRED_LOCAL_CONTEXT,
+    leasePath: localConfig?.leasePath ?? `${runtime.config.stateRoot}/local-inference-lease`,
+    preflight: localPreflight,
+  });
+  const checkpoints = new CheckpointStore(runtime.config.stateRoot);
+  const git = new GitAdapter();
+  const workers = new DurableWorkerRuntime(new WorkerDispatcher(router, { cloud, local }, localPreflight), checkpoints);
+  const reviewer = new CodexReadOnlyReviewer();
+  return new RuntimeComposition({
+    target: targetConfig,
+    manifest: runtime.manifest,
+    stateRoot: runtime.config.stateRoot,
+    issues: createRuntimeIssueBoundary(gh, target.targetRepo),
+    checkpoints,
+    git,
+    workers,
+    reviewer,
+    sessionExists: codexSessionExists,
+    maxLunaWorkers: runtime.config.maxLunaWorkers,
+    humanGateApproved: (taskId) => runtime.config.humanGateApprovals?.includes(taskId) ?? false,
+    retryIntervalMs: runtime.config.retryIntervalMs,
+  });
+}
+
+function requireTargetAwareGh(client: GhClient, repository: string): TargetAwareGhClient {
+  if (!("verifyTarget" in client) || typeof client.verifyTarget !== "function") throw new Error("runtime GitHub client must provide target verification");
+  if (!("repository" in client) || client.repository !== repository) throw new Error("runtime GitHub client repository does not match configured target");
+  return client as TargetAwareGhClient;
+}
+
+function requiredTargetRepository(repository: string | undefined): string {
+  if (repository === undefined) throw new Error("disposable runtime target must explicitly declare githubRepo");
+  return repository;
 }
 
 export async function loadRuntime(options: CliAppOptions = {}): Promise<LoadedRuntime> {
