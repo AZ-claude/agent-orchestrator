@@ -10,7 +10,8 @@ import { parseRuntimeTargetConfig, RuntimeTargetConfig, TaskManifest } from "../
 import { GitAdapter } from "../src/git/index.js";
 import { IssueSnapshot, TASK_MARKER } from "../src/github/index.js";
 import { RuntimeComposition, RuntimeIssueBoundary } from "../src/runtime/index.js";
-import { WorkerDispatchResult } from "../src/worker/index.js";
+import { WorkerDispatchHandle, WorkerDispatchResult } from "../src/worker/index.js";
+import { WorkerProcessHandle } from "../src/worker/worker.js";
 
 const execFile = promisify(nodeExecFile);
 
@@ -106,4 +107,49 @@ test("AO-53 fails closed when a reviewed source HEAD changes before restart merg
   await checkpoints.save({ issueNumber: 1, taskId: "AO-43", phase: "luna", attempt: 1, sessionId: null, branch: info.branch, worktree: info.path, pid: null, lastHead: reviewedHead, retryAt: null, executionState: "reviewing", lifecycle: "RETIRED", workerRole: "primary", review: { result: "APPROVE", cycle: 1 }, reviewedHead });
   const result = await new RuntimeComposition({ target: targetConfig(repo), manifest: runtimeManifest, stateRoot: state, issues, checkpoints, git, workers: fakeWorker(repo, { starts: 0, resumes: 0 }) as never, reviewer: { review: async () => "APPROVE" }, retryIntervalMs: 1000 }).poll();
   assert.equal(result.kind, "blocked-human"); assert.equal(issues.issue.state, "OPEN"); assert.ok(issues.calls.includes("state:blocked-human"));
+});
+
+test("detached runtime dispatch fills two SAFE slots with distinct durable process ownership", async () => {
+  const { repo, state } = await fixture();
+  const fixtureTask = manifest.tasks[0]!;
+  const runtimeManifest: TaskManifest = { ...manifest, handoff: { ...manifest.handoff, targetRepo: repo }, tasks: [
+    { ...fixtureTask, id: "AO-43-A", parallel: "SAFE", allowedPaths: ["a.txt"] },
+    { ...fixtureTask, id: "AO-43-B", parallel: "SAFE", allowedPaths: ["b.txt"] },
+  ] };
+  let issues: IssueSnapshot[] = [
+    { number: 1, title: "A", body: TASK_MARKER("AO-43-A"), state: "OPEN", labels: ["ao:state:ready"], parentNumber: null, blockedBy: [] },
+    { number: 2, title: "B", body: TASK_MARKER("AO-43-B"), state: "OPEN", labels: ["ao:state:ready"], parentNumber: null, blockedBy: [] },
+  ];
+  const checkpoints = new CheckpointStore(state);
+  const active = new Set<number>();
+  const handles = new Map<string, WorkerDispatchHandle>();
+  const workers = {
+    start: async () => { throw new Error("legacy blocking start must not be used"); },
+    startDetached: async (options: { checkpoint: Parameters<typeof checkpoints.save>[0]; worktree: string }): Promise<WorkerDispatchHandle> => {
+      const pid = 700 + handles.size + 1;
+      active.add(pid);
+      const run = { provider: "cloud" as const, adapter: "codex/luna" as const, role: "primary" as const, sessionId: null, pid, outcome: "success" as const, exitCode: 0, stderr: [], logPath: `/tmp/${pid}.log`, fresh: true, resumable: false };
+      const routing = { mode: "cloud" as const, configuredPrimary: "cloud" as const, configuredRecovery: "cloud" as const, latchedProvider: null };
+      const process: WorkerProcessHandle = { started: { provider: "cloud", adapter: "codex/luna", role: "primary", sessionId: null, pid, logPath: run.logPath, fresh: true, resumable: false }, completion: new Promise(() => undefined) };
+      await checkpoints.save({ ...options.checkpoint, pid, workerProvider: "cloud", workerAdapter: "codex/luna", workerMode: "cloud", configuredPrimary: "cloud", configuredRecovery: "cloud", lifecycle: "ACTIVE", executionState: "running" });
+      const handle = { started: process.started, routing, completion: process.completion.then((value) => ({ run: value, routing })) };
+      handles.set(options.checkpoint.taskId, handle);
+      return handle;
+    },
+    resume: async () => { throw new Error("resume not expected"); },
+    retire: async () => false,
+  };
+  const issueBoundary: RuntimeIssueBoundary = {
+    readOpen: async () => issues,
+    setState: async (number, stateValue) => { issues = issues.map((issue) => issue.number === number ? { ...issue, labels: [`ao:state:${stateValue}`] } : issue); },
+    close: async () => undefined,
+  };
+  const runtime = new RuntimeComposition({ target: targetConfig(repo), manifest: runtimeManifest, stateRoot: state, checkpoints, issues: issueBoundary, workers: workers as never, reviewer: { review: async () => "APPROVE" }, retryIntervalMs: 1000, maxLunaWorkers: 2, isProcessAlive: (pid) => active.has(pid) });
+  assert.equal((await runtime.poll()).kind, "dispatched");
+  assert.equal((await runtime.poll()).kind, "dispatched");
+  const saved = await checkpoints.list();
+  assert.equal(saved.length, 2);
+  assert.equal(new Set(saved.map((checkpoint) => checkpoint.pid)).size, 2);
+  assert.equal(new Set(saved.map((checkpoint) => checkpoint.worktree)).size, 2);
+  assert.equal(new Set(saved.map((checkpoint) => checkpoint.branch)).size, 2);
 });

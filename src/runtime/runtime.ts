@@ -17,11 +17,13 @@ import { ReviewCloseController, IndependentReviewer, ControllerResult, RecoveryR
 import { reconcile, ReconcileAction } from "../reconcile/index.js";
 import { DeterministicScheduler, schedulerTasks } from "../scheduler/index.js";
 import { MachineValidator, ReviewPacket } from "../validation/index.js";
-import { DurableWorkerDispatchOptions, DurableWorkerResumeOptions, WorkerDispatchResult } from "../worker/index.js";
+import { DurableWorkerDispatchOptions, DurableWorkerResumeOptions, WorkerDispatchHandle, WorkerDispatchResult } from "../worker/index.js";
 
 export interface RuntimeWorkerBoundary {
   readonly start: (options: DurableWorkerDispatchOptions) => Promise<WorkerDispatchResult>;
+  readonly startDetached?: (options: DurableWorkerDispatchOptions) => Promise<WorkerDispatchHandle>;
   readonly resume: (options: DurableWorkerResumeOptions) => Promise<WorkerDispatchResult>;
+  readonly resumeDetached?: (options: DurableWorkerResumeOptions) => Promise<WorkerDispatchHandle>;
   readonly retire: (pid?: number) => Promise<boolean>;
 }
 
@@ -95,6 +97,7 @@ export class RuntimeComposition {
     const checkpoints = await this.checkpoints.list();
     const issueByTask = indexTaskIssues(issues, this.deps.manifest);
     assertUniqueOwnership(checkpoints, issueByTask);
+    let watchedTaskId: string | undefined;
 
     for (const checkpoint of checkpoints.sort((left, right) => left.taskId.localeCompare(right.taskId))) {
       const task = this.task(checkpoint.taskId);
@@ -128,7 +131,10 @@ export class RuntimeComposition {
       }
       if (!["running", "reviewing", "paused"].includes(currentState)) continue;
       const action = await this.reconcileCheckpoint(checkpoint, issue, currentState);
-      if (action.kind === "watch") return { kind: "watching", taskId: task.id, action: action.kind };
+      if (action.kind === "watch") {
+        watchedTaskId = task.id;
+        continue;
+      }
       if (action.kind === "pause" || action.kind === "wait-local-lease") {
         await this.save({ ...checkpoint, executionState: "paused", retryAt: action.retryAt ?? this.retryAt() });
         await this.deps.issues.setState(issue.number, "paused");
@@ -163,7 +169,7 @@ export class RuntimeComposition {
       mergeBarrierActive: this.deps.activeMergeBarrier?.() ?? false,
     });
     const next = ready[0];
-    if (next === undefined) return { kind: "idle" };
+    if (next === undefined) return watchedTaskId === undefined ? { kind: "idle" } : { kind: "watching", taskId: watchedTaskId, action: "watch" };
     const issue = issueByTask.get(next.id);
     if (issue === undefined) return { kind: "idle" };
     await this.start(next, issue);
@@ -191,7 +197,13 @@ export class RuntimeComposition {
     };
     await this.save(checkpoint);
     await this.deps.issues.setState(issue.number, "running");
-    const dispatch = await this.deps.workers.start({ checkpoint, prompt: promptFor(task), worktree: worktree.path, runId: `${task.id}-1`, ...(this.deps.localModel === undefined ? {} : { localModel: this.deps.localModel }) });
+    const options = { checkpoint, prompt: promptFor(task), worktree: worktree.path, runId: `${task.id}-1`, ...(this.deps.localModel === undefined ? {} : { localModel: this.deps.localModel }) };
+    if (this.deps.workers.startDetached !== undefined) {
+      const dispatch = await this.deps.workers.startDetached(options);
+      void dispatch.completion.then((result) => this.recordWorkerResult(checkpoint, result.run.outcome, result.run.sessionId, result.run.pid, worktree.path)).catch((error: unknown) => this.block(checkpoint, issue, `worker completion failed: ${error instanceof Error ? error.message : String(error)}`));
+      return;
+    }
+    const dispatch = await this.deps.workers.start(options);
     await this.recordWorkerResult(checkpoint, dispatch.run.outcome, dispatch.run.sessionId, dispatch.run.pid, worktree.path);
   }
 
@@ -204,6 +216,11 @@ export class RuntimeComposition {
     await this.save(running);
     await this.deps.issues.setState(issue.number, "running");
     const options: DurableWorkerResumeOptions = { checkpoint: running, sessionId: checkpoint.sessionId, prompt: promptFor(task), worktree: checkpoint.worktree, runId: checkpoint.runId ?? `${task.id}-${checkpoint.attempt}`, ...(checkpoint.localModel === undefined ? {} : { localModel: checkpoint.localModel }) };
+    if (this.deps.workers.resumeDetached !== undefined) {
+      const dispatch = await this.deps.workers.resumeDetached(options);
+      void dispatch.completion.then((result) => this.recordWorkerResult(running, result.run.outcome, result.run.sessionId, result.run.pid, checkpoint.worktree)).catch((error: unknown) => this.block(running, issue, `worker completion failed: ${error instanceof Error ? error.message : String(error)}`));
+      return;
+    }
     const dispatch = await this.deps.workers.resume(options);
     await this.recordWorkerResult(running, dispatch.run.outcome, dispatch.run.sessionId, dispatch.run.pid, checkpoint.worktree);
   }
@@ -212,7 +229,13 @@ export class RuntimeComposition {
     const running = { ...checkpoint, executionState: "running" as const, pid: null, retryAt: null };
     await this.save(running);
     await this.deps.issues.setState(issue.number, "running");
-    const dispatch = await this.deps.workers.start({ checkpoint: running, prompt: promptFor(task), worktree: running.worktree, runId: `${task.id}-${running.attempt}`, ...(running.localModel === undefined ? {} : { localModel: running.localModel }) });
+    const options = { checkpoint: running, prompt: promptFor(task), worktree: running.worktree, runId: `${task.id}-${running.attempt}`, ...(running.localModel === undefined ? {} : { localModel: running.localModel }) };
+    if (this.deps.workers.startDetached !== undefined) {
+      const dispatch = await this.deps.workers.startDetached(options);
+      void dispatch.completion.then((result) => this.recordWorkerResult(running, result.run.outcome, result.run.sessionId, result.run.pid, running.worktree)).catch((error: unknown) => this.block(running, issue, `worker completion failed: ${error instanceof Error ? error.message : String(error)}`));
+      return;
+    }
+    const dispatch = await this.deps.workers.start(options);
     await this.recordWorkerResult(running, dispatch.run.outcome, dispatch.run.sessionId, dispatch.run.pid, running.worktree);
   }
 
