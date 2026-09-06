@@ -34,6 +34,13 @@ export interface WorkerSessionStart {
   readonly evidence?: RecoveryEvidence;
 }
 
+export interface LunaProcessHandle {
+  readonly pid: number | undefined;
+  readonly sessionId: string | null;
+  readonly logPath: string;
+  readonly completion: Promise<LunaRunResult>;
+}
+
 export class LunaRunner {
   private readonly logRoot: string;
   private readonly maxResumeAttempts: number;
@@ -47,6 +54,10 @@ export class LunaRunner {
     return this.run({ kind: "new", prompt }, worktree, 1);
   }
 
+  async startDetached(prompt: string, worktree: string): Promise<LunaProcessHandle> {
+    return this.runDetached({ kind: "new", prompt }, worktree, 1);
+  }
+
   /** Recovery is intentionally a new invocation; it never resumes Primary history. */
   startRecovery(evidence: RecoveryEvidence, prompt: string, worktree: string): Promise<LunaRunResult> {
     return this.run({ kind: "new", prompt: `${prompt}\n\nDurable recovery evidence:\n${JSON.stringify(evidence)}` }, worktree, 1);
@@ -54,6 +65,11 @@ export class LunaRunner {
   resume(sessionId: string, prompt: string, worktree: string, attempt = 1): Promise<LunaRunResult> {
     if (attempt < 1 || attempt > this.maxResumeAttempts) throw new Error(`Luna resume attempt must be between 1 and ${this.maxResumeAttempts}`);
     return this.run({ kind: "resume", sessionId, prompt }, worktree, attempt);
+  }
+
+  async resumeDetached(sessionId: string, prompt: string, worktree: string, attempt = 1): Promise<LunaProcessHandle> {
+    if (attempt < 1 || attempt > this.maxResumeAttempts) throw new Error(`Luna resume attempt must be between 1 and ${this.maxResumeAttempts}`);
+    return this.runDetached({ kind: "resume", sessionId, prompt }, worktree, attempt);
   }
 
   async resumeWithRetry(sessionId: string, prompt: string, worktree: string): Promise<LunaRunResult> {
@@ -73,18 +89,26 @@ export class LunaRunner {
   }
 
   private async run(invocation: CodexInvocation, worktree: string, attempt: number): Promise<LunaRunResult> {
+    const handle = await this.runDetached(invocation, worktree, attempt);
+    return handle.completion;
+  }
+
+  private async runDetached(invocation: CodexInvocation, worktree: string, attempt: number): Promise<LunaProcessHandle> {
     const process = this.createProcess(invocation, worktree);
     if (process.pid !== undefined) this.active.set(process.pid, process);
-    try {
+    const logPath = join(this.logRoot, `${basename(worktree)}.jsonl`);
+    const completion = (async (): Promise<LunaRunResult> => {
+      try {
       const [stdout, stderr, exitCode, exitReason] = await Promise.all([collect(process.stdout), collect(process.stderr), process.exitCode, process.exitReason ?? Promise.resolve("exit" as const)]);
       const observation = observeCodexOutput(stdout, exitCode, exitReason);
-      const logPath = join(this.logRoot, `${basename(worktree)}.jsonl`);
       await mkdir(this.logRoot, { recursive: true });
       await appendFile(logPath, [...stdout, ...stderr.map((line) => JSON.stringify({ type: "stderr", line }))].map((line) => `${line}\n`).join(""), "utf8");
       return { ...observation, pid: process.pid, stderr, recoveryEvent: observation.outcome, attempt, logPath };
-    } finally {
-      if (process.pid !== undefined) this.active.delete(process.pid);
-    }
+      } finally {
+        if (process.pid !== undefined) this.active.delete(process.pid);
+      }
+    })();
+    return { pid: process.pid, sessionId: null, logPath, completion };
   }
 }
 

@@ -1,6 +1,6 @@
 import { WorkerProvider, WorkerRole } from "../config/index.js";
 import { LunaRunner, RecoveryEvidence } from "../luna/index.js";
-import { ImplementationWorkerAdapter, WorkerRecoveryEvidence, WorkerRunResult } from "./worker.js";
+import { ImplementationWorkerAdapter, WorkerProcessHandle, WorkerRecoveryEvidence, WorkerRunResult } from "./worker.js";
 
 export class CloudWorkerAdapter implements ImplementationWorkerAdapter {
   readonly provider: WorkerProvider = "cloud";
@@ -10,12 +10,36 @@ export class CloudWorkerAdapter implements ImplementationWorkerAdapter {
     return normalize(await this.luna.start(prompt, worktree), role, true);
   }
 
+  async startDetached(prompt: string, worktree: string, role: WorkerRole): Promise<WorkerProcessHandle> {
+    const handle = await this.luna.startDetached(prompt, worktree);
+    return {
+      started: { provider: "cloud", adapter: "codex/luna", role, sessionId: null, pid: handle.pid, logPath: handle.logPath, fresh: true, resumable: false },
+      completion: handle.completion.then((result) => normalize(result, role, true)),
+    };
+  }
+
   async resume(sessionId: string, prompt: string, worktree: string, role: WorkerRole): Promise<WorkerRunResult> {
     return normalize(await this.luna.resumeWithRetry(sessionId, prompt, worktree), role, false);
   }
 
+  async resumeDetached(sessionId: string, prompt: string, worktree: string, role: WorkerRole): Promise<WorkerProcessHandle> {
+    const handle = await this.luna.resumeDetached(sessionId, prompt, worktree);
+    return {
+      started: { provider: "cloud", adapter: "codex/luna", role, sessionId: null, pid: handle.pid, logPath: handle.logPath, fresh: false, resumable: false },
+      completion: handle.completion.then((result) => normalize(result, role, false)),
+    };
+  }
+
   async startRecovery(evidence: WorkerRecoveryEvidence, prompt: string, worktree: string): Promise<WorkerRunResult> {
     return normalize(await this.luna.startRecovery(evidence as RecoveryEvidence, prompt, worktree), "recovery", true);
+  }
+
+  async startRecoveryDetached(evidence: WorkerRecoveryEvidence, prompt: string, worktree: string): Promise<WorkerProcessHandle> {
+    const handle = await this.luna.startDetached(`${prompt}\n\nDurable recovery evidence:\n${JSON.stringify(evidence)}`, worktree);
+    return {
+      started: { provider: "cloud", adapter: "codex/luna", role: "recovery", sessionId: null, pid: handle.pid, logPath: handle.logPath, fresh: true, resumable: false },
+      completion: handle.completion.then((result) => normalize(result, "recovery", true)),
+    };
   }
 
   async retire(pid?: number): Promise<boolean> {

@@ -3,7 +3,7 @@ import { basename, join } from "node:path";
 import { AO_LOCAL_MODEL, REQUIRED_LOCAL_CONTEXT, WorkerRole } from "../config/index.js";
 import { OpenCodeInvocation, OpenCodeProcess, OpenCodeOutcome, AvailabilityLimitReason, observeOpenCodeOutput, spawnOpenCode } from "./lifecycle.js";
 import { LeaseEvidence, LocalInferenceLease } from "./lease.js";
-import { ImplementationWorkerAdapter, WorkerRecoveryEvidence, WorkerRunResult } from "../worker/index.js";
+import { ImplementationWorkerAdapter, WorkerProcessHandle, WorkerRecoveryEvidence, WorkerRunResult } from "../worker/index.js";
 
 export type OpenCodeProcessFactory = (invocation: OpenCodeInvocation, cwd: string) => OpenCodeProcess;
 export interface OpenCodeRunnerOptions {
@@ -38,12 +38,24 @@ export class OpenCodeWorkerAdapter implements ImplementationWorkerAdapter {
     return this.run({ kind: "new", prompt, model: this.options.model }, worktree, role, true);
   }
 
+  async startDetached(prompt: string, worktree: string, role: WorkerRole): Promise<WorkerProcessHandle> {
+    return this.runDetached({ kind: "new", prompt, model: this.options.model }, worktree, role, true);
+  }
+
   resume(sessionId: string, prompt: string, worktree: string, role: WorkerRole): Promise<WorkerRunResult> {
     return this.run({ kind: "resume", sessionId, prompt, model: this.options.model }, worktree, role, false);
   }
 
+  async resumeDetached(sessionId: string, prompt: string, worktree: string, role: WorkerRole): Promise<WorkerProcessHandle> {
+    return this.runDetached({ kind: "resume", sessionId, prompt, model: this.options.model }, worktree, role, false);
+  }
+
   startRecovery(evidence: WorkerRecoveryEvidence, prompt: string, worktree: string): Promise<WorkerRunResult> {
     return this.run({ kind: "new", prompt: `${prompt}\n\nDurable recovery evidence:\n${JSON.stringify(evidence)}`, model: this.options.model }, worktree, "recovery", true);
+  }
+
+  async startRecoveryDetached(evidence: WorkerRecoveryEvidence, prompt: string, worktree: string): Promise<WorkerProcessHandle> {
+    return this.runDetached({ kind: "new", prompt: `${prompt}\n\nDurable recovery evidence:\n${JSON.stringify(evidence)}`, model: this.options.model }, worktree, "recovery", true);
   }
 
   async retire(pid?: number): Promise<boolean> {
@@ -59,63 +71,78 @@ export class OpenCodeWorkerAdapter implements ImplementationWorkerAdapter {
   }
 
   private async run(invocation: OpenCodeInvocation, worktree: string, role: WorkerRole, fresh: boolean): Promise<WorkerRunResult> {
+    const handle = await this.runDetached(invocation, worktree, role, fresh);
+    return handle.completion;
+  }
+
+  private async runDetached(invocation: OpenCodeInvocation, worktree: string, role: WorkerRole, fresh: boolean): Promise<WorkerProcessHandle> {
     const logPath = await this.logPath(worktree);
     if (this.options.preflight === undefined || !(await this.options.preflight())) {
       await appendFile(logPath, `${JSON.stringify({ provider: "local", adapter: "opencode", role, pid: null, sessionId: null, outcome: "preflight-failed" })}\n`, "utf8");
-      return { provider: "local", adapter: "opencode", role, sessionId: null, pid: undefined, outcome: "failed", exitCode: null, stderr: [], logPath, fresh, resumable: false };
+      const run = { provider: "local" as const, adapter: "opencode" as const, role, sessionId: null, pid: undefined, outcome: "failed" as const, exitCode: null, stderr: [], logPath, fresh, resumable: false };
+      return { started: { provider: "local", adapter: "opencode", role, sessionId: null, pid: undefined, logPath, fresh, resumable: false }, completion: Promise.resolve(run) };
     }
     const acquired = await this.lease.acquire();
     if (acquired.handle === undefined) {
       await appendFile(logPath, `${JSON.stringify({ provider: "local", adapter: "opencode", role, pid: null, sessionId: null, outcome: "lease-busy", lease: acquired.evidence })}\n`, "utf8");
-      return { provider: "local", adapter: "opencode", role, sessionId: null, pid: undefined, outcome: "lease-busy", exitCode: null, stderr: [], logPath, fresh, resumable: false, lease: acquired.evidence };
+      const run = { provider: "local" as const, adapter: "opencode" as const, role, sessionId: null, pid: undefined, outcome: "lease-busy" as const, exitCode: null, stderr: [], logPath, fresh, resumable: false, lease: acquired.evidence };
+      return { started: { provider: "local", adapter: "opencode", role, sessionId: null, pid: undefined, logPath, fresh, resumable: false, lease: acquired.evidence }, completion: Promise.resolve(run) };
     }
-    let process: OpenCodeProcess | undefined;
-    let lease: LeaseEvidence = acquired.evidence;
-    let result: WorkerRunResult | undefined;
-    let stdoutPromise: Promise<string[]> | undefined;
-    let stderrPromise: Promise<string[]> | undefined;
+    const leaseHandle = acquired.handle;
+    let process: OpenCodeProcess;
     try {
       process = this.createProcess(invocation, worktree);
-      if (process.pid !== undefined) this.active.set(process.pid, process);
-      const stdoutRead = collect(process.stdout);
-      const stderrRead = collect(process.stderr);
-      stdoutPromise = stdoutRead;
-      stderrPromise = stderrRead;
-      const [stdout, stderr, exitCode, exitReason] = await Promise.all([stdoutRead, stderrRead, process.exitCode, process.exitReason]);
-      const observation = observeOpenCodeOutput(stdout, exitCode, exitReason);
-      const evidence = {
-        provider: "local",
-        adapter: "opencode",
-        role,
-        pid: process.pid ?? null,
-        sessionId: observation.sessionId,
-        outcome: observation.outcome,
-        availabilityReason: observation.availabilityReason ?? null,
-        exitCode: observation.exitCode,
-        exitReason: observation.exitReason,
-        eventTypes: observation.events.map((event) => /^[A-Za-z0-9._:-]{1,64}$/.test(event.type) ? event.type : "<unrecognized>"),
-        stderrLineCount: stderr.length,
-        lease,
-      };
-      await appendFile(logPath, `${JSON.stringify(evidence)}\n`, "utf8");
-      result = { provider: "local", adapter: "opencode", role, sessionId: observation.sessionId, pid: process.pid, outcome: observation.outcome, ...(observation.availabilityReason === undefined ? {} : { availabilityReason: observation.availabilityReason }), exitCode, stderr, logPath, fresh, resumable: observation.sessionId !== null && observation.outcome === "success", lease };
     } catch {
-      if (process !== undefined) {
-        try { process.kill("SIGTERM"); } catch { /* process may already be gone; await its terminal promises below */ }
-        await Promise.allSettled([process.exitCode, process.exitReason, stdoutPromise, stderrPromise]);
-      }
-      result = { provider: "local", adapter: "opencode", role, sessionId: null, pid: process?.pid, outcome: "spawn-error", exitCode: null, stderr: [], logPath, fresh, resumable: false, lease };
-      await appendFile(logPath, `${JSON.stringify({ provider: "local", adapter: "opencode", role, pid: process?.pid ?? null, sessionId: null, outcome: "spawn-error", lease })}\n`, "utf8");
-    } finally {
-      if (process?.pid !== undefined) this.active.delete(process.pid);
-      try {
-        lease = await acquired.handle.release();
-      } catch {
-        lease = { ...acquired.evidence, status: "release-skipped" };
-      }
+      const completion = (async (): Promise<WorkerRunResult> => {
+        let lease: LeaseEvidence;
+        try { lease = await leaseHandle.release(); } catch { lease = { ...acquired.evidence, status: "release-skipped" }; }
+        await appendFile(logPath, `${JSON.stringify({ provider: "local", adapter: "opencode", role, pid: null, sessionId: null, outcome: "spawn-error", lease })}\n`, "utf8");
+        return { provider: "local", adapter: "opencode", role, sessionId: null, pid: undefined, outcome: "spawn-error", exitCode: null, stderr: [], logPath, fresh, resumable: false, lease };
+      })();
+      return { started: { provider: "local", adapter: "opencode", role, sessionId: null, pid: undefined, logPath, fresh, resumable: false, lease: acquired.evidence }, completion };
     }
-    await appendFile(logPath, `${JSON.stringify({ provider: "local", adapter: "opencode", lease })}\n`, "utf8");
-    return { ...result as WorkerRunResult, lease };
+    if (process.pid !== undefined) this.active.set(process.pid, process);
+    const stdoutRead = collect(process.stdout);
+    const stderrRead = collect(process.stderr);
+    const completion = (async (): Promise<WorkerRunResult> => {
+      let lease: LeaseEvidence = acquired.evidence;
+      let result: WorkerRunResult;
+      try {
+        const [stdout, stderr, exitCode, exitReason] = await Promise.all([stdoutRead, stderrRead, process.exitCode, process.exitReason]);
+        const observation = observeOpenCodeOutput(stdout, exitCode, exitReason);
+        const evidence = {
+          provider: "local",
+          adapter: "opencode",
+          role,
+          pid: process.pid ?? null,
+          sessionId: observation.sessionId,
+          outcome: observation.outcome,
+          availabilityReason: observation.availabilityReason ?? null,
+          exitCode: observation.exitCode,
+          exitReason: observation.exitReason,
+          eventTypes: observation.events.map((event) => /^[A-Za-z0-9._:-]{1,64}$/.test(event.type) ? event.type : "<unrecognized>"),
+          stderrLineCount: stderr.length,
+          lease,
+        };
+        await appendFile(logPath, `${JSON.stringify(evidence)}\n`, "utf8");
+        result = { provider: "local", adapter: "opencode", role, sessionId: observation.sessionId, pid: process.pid, outcome: observation.outcome, ...(observation.availabilityReason === undefined ? {} : { availabilityReason: observation.availabilityReason }), exitCode, stderr, logPath, fresh, resumable: observation.sessionId !== null && observation.outcome === "success", lease };
+      } catch {
+        try { process.kill("SIGTERM"); } catch { /* process may already be gone */ }
+        await Promise.allSettled([process.exitCode, process.exitReason, stdoutRead, stderrRead]);
+        result = { provider: "local", adapter: "opencode", role, sessionId: null, pid: process.pid, outcome: "spawn-error", exitCode: null, stderr: [], logPath, fresh, resumable: false, lease };
+        await appendFile(logPath, `${JSON.stringify({ provider: "local", adapter: "opencode", role, pid: process.pid ?? null, sessionId: null, outcome: "spawn-error", lease })}\n`, "utf8");
+      } finally {
+        if (process.pid !== undefined) this.active.delete(process.pid);
+        try {
+          lease = await leaseHandle.release();
+        } catch {
+          lease = { ...acquired.evidence, status: "release-skipped" };
+        }
+      }
+      await appendFile(logPath, `${JSON.stringify({ provider: "local", adapter: "opencode", lease })}\n`, "utf8");
+      return { ...result, lease };
+    })();
+    return { started: { provider: "local", adapter: "opencode", role, sessionId: null, pid: process.pid, logPath, fresh, resumable: false, lease: acquired.evidence }, completion };
   }
 
   private async logPath(worktree: string): Promise<string> {

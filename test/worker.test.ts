@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DurableWorkerRuntime, WorkerDispatcher, WorkerRunRouter } from "../src/worker/index.js";
-import { ImplementationWorkerAdapter, WorkerRunResult } from "../src/worker/worker.js";
+import { ImplementationWorkerAdapter, WorkerProcessHandle, WorkerRunResult } from "../src/worker/worker.js";
 import { CloudWorkerAdapter } from "../src/worker/cloud.js";
 import { LunaRunner } from "../src/luna/index.js";
 import { CodexProcess } from "../src/codex/index.js";
@@ -90,4 +90,43 @@ test("routed dispatch checkpoint contains provider, role, session and fallback f
   assert.equal(saved?.workerMode, "auto");
   assert.equal(saved?.providerFallback?.reason, "QUOTA_LIMIT");
   assert.equal(saved?.runId, "run-32");
+});
+
+test("detached dispatch records independent PIDs and restores an auto fallback from checkpoint", async () => {
+  const localConfig = { executable: "/tmp/opencode", model: "ollama/qwen3.8:latest", contextTokens: 262144, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/config", leasePath: "/tmp/lease" } as const;
+  const pending = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; };
+  const first = pending<WorkerRunResult>();
+  const cloud: ImplementationWorkerAdapter = {
+    provider: "cloud",
+    start: async () => result("cloud", "primary", "success"),
+    startDetached: async (_prompt, _worktree, role): Promise<WorkerProcessHandle> => ({ started: { provider: "cloud", adapter: "codex/luna", role, sessionId: null, pid: 701, logPath: "/tmp/a", fresh: true, resumable: false }, completion: first.promise }),
+    resume: async () => result("cloud", "primary", "success"),
+    startRecovery: async () => result("cloud", "recovery", "success"),
+    retire: async () => false,
+  };
+  const local: ImplementationWorkerAdapter = {
+    provider: "local",
+    start: async () => result("local", "primary", "success"),
+    startDetached: async (_prompt, _worktree, role): Promise<WorkerProcessHandle> => ({ started: { provider: "local", adapter: "opencode", role, sessionId: null, pid: 702, logPath: "/tmp/b", fresh: true, resumable: false }, completion: Promise.resolve(result("local", role, "success")) }),
+    resume: async (_session, _prompt, _worktree, role) => ({ ...result("local", role, "success"), sessionId: "local-session", resumable: true }),
+    startRecovery: async () => result("local", "recovery", "success"),
+    retire: async () => false,
+  };
+  const router = new WorkerRunRouter({ mode: "auto", primary: "cloud", recovery: "local", local: localConfig });
+  const dispatcher = new WorkerDispatcher(router, { cloud, local }, async () => true);
+  const handle = await dispatcher.startDetached("task", "/tmp", "primary");
+  assert.equal(handle.started.pid, 701);
+  first.resolve(result("cloud", "primary", "availability-limit", "QUOTA_LIMIT"));
+  const fallback = await handle.completion;
+  assert.equal(fallback.run.provider, "local");
+  assert.equal(fallback.routing.fallback?.latched, true);
+  assert.equal(fallback.routing.latchedProvider, "local");
+  let cloudResumes = 0;
+  const cloudAfterRestart = { ...cloud, resume: async () => { cloudResumes += 1; return result("cloud", "primary", "success"); } };
+  const restartedRouter = new WorkerRunRouter({ mode: "auto", primary: "cloud", recovery: "local", local: localConfig });
+  const restarted = new DurableWorkerRuntime(new WorkerDispatcher(restartedRouter, { cloud: cloudAfterRestart, local }, async () => true), new CheckpointStore(await mkdtemp(join(tmpdir(), "ao-fallback-state-"))));
+  const checkpoint = { issueNumber: 1, taskId: "AO-54-FALLBACK", phase: "luna" as const, attempt: 1, sessionId: "local-session", branch: "agent/AO-54-FALLBACK", worktree: "/tmp", pid: null, lastHead: null, retryAt: null, executionState: "rework" as const, workerProvider: "local" as const, providerFallback: { from: "cloud" as const, to: "local" as const, reason: "QUOTA_LIMIT" as const, latched: true as const }, localModel: localConfig.model };
+  const resumed = await restarted.resume({ checkpoint, sessionId: "local-session", prompt: "resume", worktree: "/tmp", runId: "resume-1", localModel: localConfig.model });
+  assert.equal(resumed.run.provider, "local");
+  assert.equal(cloudResumes, 0);
 });
