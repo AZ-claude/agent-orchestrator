@@ -61,6 +61,7 @@ export type PlanTaskState = (typeof PLAN_TASK_STATES)[number];
 
 /** v1 is intentionally limited to the first pilot repository. */
 export const PILOT_TARGET_REPO = "/Users/eita/projects/slot";
+const FORBIDDEN_DISPOSABLE_GITHUB_REPOS = new Set(["AZ-claude/slot", "AZ-claude/kiji"]);
 
 export interface PilotConfig {
   readonly version: 1;
@@ -76,6 +77,8 @@ export interface PilotConfig {
   readonly maxLunaWorkers: number;
   readonly maxResumeAttempts: number;
   readonly retryIntervalMs: number;
+  /** Durable, explicit approvals; Issue labels never grant authority. */
+  readonly humanGateApprovals?: readonly string[];
   /** AO-43 runtime target boundary. Omitted for legacy read-only commands. */
   readonly runtime?: RuntimeTargetConfig;
   /** Omitted means the backwards-compatible cloud-only route. */
@@ -86,6 +89,8 @@ export interface DisposableTargetConfig {
   readonly targetRepo: string;
   readonly baseBranch: string;
   readonly allowedRoots: readonly string[];
+  /** Explicit GitHub owner/name for executable runtime selection. */
+  readonly githubRepo?: string;
 }
 
 export interface ProductionTargetConfig {
@@ -93,6 +98,7 @@ export interface ProductionTargetConfig {
   readonly enabled: false;
   readonly targetRepo: string;
   readonly baseBranch: string;
+  readonly githubRepo?: string;
 }
 
 export interface RuntimeTargetConfig {
@@ -393,7 +399,7 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
     issues.push(issue(path, "must be an object"));
     return undefined;
   }
-  rejectUnknown(value, ["version", "pilot", "stateRoot", "pollIntervalMs", "maxLunaWorkers", "maxResumeAttempts", "retryIntervalMs", "runtime", "worker"], path, issues);
+  rejectUnknown(value, ["version", "pilot", "stateRoot", "pollIntervalMs", "maxLunaWorkers", "maxResumeAttempts", "retryIntervalMs", "humanGateApprovals", "runtime", "worker"], path, issues);
   const version = requiredLiteral(value, "version", 1, path, issues);
   const pilot = requiredRecord(value, "pilot", path, issues);
   const stateRoot = requiredAbsolutePathOutside(value, "stateRoot", PILOT_TARGET_REPO, path, issues);
@@ -401,6 +407,7 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
   const maxLunaWorkers = requiredPositiveInteger(value, "maxLunaWorkers", path, issues);
   const maxResumeAttempts = requiredNonNegativeInteger(value, "maxResumeAttempts", path, issues);
   const retryIntervalMs = requiredPositiveInteger(value, "retryIntervalMs", path, issues);
+  const humanGateApprovals = value.humanGateApprovals === undefined ? null : requiredStringArray(value, "humanGateApprovals", path, issues);
   const runtime = value.runtime === undefined ? null : validateRuntimeTargetConfig(value.runtime, `${path}.runtime`, issues);
   const worker = value.worker === undefined ? null : validateWorkerConfig(value.worker, `${path}.worker`, issues);
   if (runtime !== null && runtime !== undefined && stateRoot !== undefined && isWithinPath(stateRoot, runtime.disposable.targetRepo)) {
@@ -425,11 +432,11 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
     pollIntervalMs !== undefined &&
     maxLunaWorkers !== undefined &&
     maxResumeAttempts !== undefined &&
-    retryIntervalMs !== undefined &&
+    retryIntervalMs !== undefined && humanGateApprovals !== undefined &&
     worker !== undefined &&
     runtime !== undefined
   ) {
-    return { version, pilot: { targetRepo, baseBranch, manifestPath, boardPath }, stateRoot, pollIntervalMs, maxLunaWorkers, maxResumeAttempts, retryIntervalMs, ...(runtime === null ? {} : { runtime }), ...(worker === null ? {} : { worker }) };
+    return { version, pilot: { targetRepo, baseBranch, manifestPath, boardPath }, stateRoot, pollIntervalMs, maxLunaWorkers, maxResumeAttempts, retryIntervalMs, ...(humanGateApprovals === null ? {} : { humanGateApprovals }), ...(runtime === null ? {} : { runtime }), ...(worker === null ? {} : { worker }) };
   }
   return undefined;
 }
@@ -447,9 +454,10 @@ function validateRuntimeTargetConfig(value: unknown, path: string, issues: Valid
 }
 
 function validateDisposableTargetConfig(value: Record<string, unknown>, path: string, issues: ValidationIssue[]): DisposableTargetConfig | undefined {
-  rejectUnknown(value, ["targetRepo", "baseBranch", "allowedRoots"], path, issues);
+  rejectUnknown(value, ["targetRepo", "baseBranch", "allowedRoots", "githubRepo"], path, issues);
   const targetRepo = requiredAbsolutePath(value, "targetRepo", path, issues);
   const baseBranch = requiredString(value, "baseBranch", path, issues);
+  const githubRepo = optionalString(value, "githubRepo", path, issues);
   const roots = requiredAbsolutePathArray(value, "allowedRoots", path, issues);
   if (targetRepo !== undefined && roots !== undefined) {
     if (isForbiddenRuntimePath(targetRepo)) issues.push(issue(`${path}.targetRepo`, "must not be /slot or /kiji, including descendants"));
@@ -459,16 +467,21 @@ function validateDisposableTargetConfig(value: Record<string, unknown>, path: st
     }
     if (!roots.some((root) => isWithinPath(targetRepo, root))) issues.push(issue(`${path}.targetRepo`, "must be inside an allowed disposable target root"));
   }
-  if (targetRepo !== undefined && baseBranch !== undefined && roots !== undefined && !issuesForPath(issues, path)) return { targetRepo, baseBranch, allowedRoots: roots };
+  if (githubRepo !== undefined && githubRepo !== null) {
+    if (!/^[^/\s]+\/[^/\s]+$/.test(githubRepo)) issues.push(issue(`${path}.githubRepo`, "must be GitHub owner/name"));
+    if (FORBIDDEN_DISPOSABLE_GITHUB_REPOS.has(githubRepo)) issues.push(issue(`${path}.githubRepo`, "must not target the protected /slot or /kiji repository"));
+  }
+  if (targetRepo !== undefined && baseBranch !== undefined && roots !== undefined && !issuesForPath(issues, path)) return { targetRepo, baseBranch, allowedRoots: roots, ...(githubRepo === undefined || githubRepo === null ? {} : { githubRepo }) };
   return undefined;
 }
 
 function validateProductionTargetConfig(value: Record<string, unknown>, path: string, issues: ValidationIssue[]): ProductionTargetConfig | undefined {
-  rejectUnknown(value, ["enabled", "targetRepo", "baseBranch"], path, issues);
+  rejectUnknown(value, ["enabled", "targetRepo", "baseBranch", "githubRepo"], path, issues);
   const enabled = requiredLiteral(value, "enabled", false, path, issues);
   const targetRepo = requiredAbsolutePath(value, "targetRepo", path, issues);
   const baseBranch = requiredString(value, "baseBranch", path, issues);
-  if (enabled !== undefined && targetRepo !== undefined && baseBranch !== undefined && !issuesForPath(issues, path)) return { enabled, targetRepo, baseBranch };
+  const githubRepo = optionalString(value, "githubRepo", path, issues);
+  if (enabled !== undefined && targetRepo !== undefined && baseBranch !== undefined && !issuesForPath(issues, path)) return { enabled, targetRepo, baseBranch, ...(githubRepo === undefined || githubRepo === null ? {} : { githubRepo }) };
   return undefined;
 }
 

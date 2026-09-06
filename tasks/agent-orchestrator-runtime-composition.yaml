@@ -56,3 +56,73 @@ tasks:
     humanGate: false
     allowedPaths: [docs/agent-runs/**, docs/task-boards/**]
     test: npm test
+  - id: AO-48
+    title: Make the GitHub repository boundary target-aware
+    state: DONE
+    dependsOn: [AO-47]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/github/**, src/runtime/**, src/cli/**, src/config/**, test/github.test.ts, test/runtime.test.ts, test/entrypoint.test.ts]
+    nonScope: [slot-or-kiji-issue-operation, implicit-AZ-claude-slot-production-default, launchagent-lifecycle]
+    completion: Runtime target configuration explicitly resolves GitHub owner/name; before dispatch the local target repository and GitHub repository identity must match or execution fails closed. Disposable execution rejects /slot and /kiji; legacy pilot compatibility, if retained, is explicit and isolated.
+    test: npm test -- github runtime entrypoint config && npm run build && npm run lint
+  - id: AO-49
+    title: Build concrete Independent Reviewer transport
+    state: PLANNED
+    dependsOn: [AO-47]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/controller/**, src/codex/**, src/luna/**, src/config/**, test/controller.test.ts, test/runtime.test.ts, test/entrypoint.test.ts]
+    nonScope: [reviewer-code-changes, implementation-history-transfer, fake-reviewer-in-production-composition, launchagent-lifecycle]
+    completion: A concrete read-only Independent Reviewer accepts only the ReviewPacket and minimal task scope/source-HEAD facts, returns structured APPROVE/REWORK/PLAN_CONFLICT-compatible results, cannot edit code, and fails closed when capability is unavailable. Transport representation may be revised without weakening independent context or history isolation.
+    test: npm test -- controller runtime entrypoint && npm run build && npm run lint
+  - id: AO-50
+    title: Build the concrete Worker runtime factory
+    state: PLANNED
+    dependsOn: [AO-47]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/config/**, src/cli/**, src/runtime/**, src/worker/**, src/opencode/**, docs/runbooks/**, test/config.test.ts, test/worker.test.ts, test/opencode.test.ts, test/entrypoint.test.ts]
+    nonScope: [ollama-model-management, kiji-operation, launchagent-lifecycle, generic-provider-framework]
+    completion: Existing LunaRunner, CloudWorkerAdapter, OpenCodeWorkerAdapter, WorkerRunRouter, WorkerDispatcher, and DurableWorkerRuntime are assembled from runtime config. Cloud/local/auto retain the existing policy; local enforces ollama/qwen3.8:latest, context 262144, OpenCode preflight, and the shared lease without reimplementing AO-41/AO-42 mechanisms.
+    test: npm test -- config worker opencode entrypoint runtime && npm run build && npm run lint
+  - id: AO-51
+    title: Build concrete executable runtime composition
+    state: PLANNED
+    dependsOn: [AO-48, AO-49, AO-50]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [src/runtime/**, src/scheduler/**, src/controller/**, src/checkpoint/**, src/cli/**, src/config/**, test/runtime.test.ts, test/scheduler.test.ts, test/controller.test.ts, test/entrypoint.test.ts]
+    nonScope: [issue-label-derived-human-authority, launchagent-lifecycle, runtime-composition-rewrite]
+    completion: The executable entrypoint builds CheckpointStore, target-aware Issue boundary, GitAdapter, concrete Worker runtime, concrete Independent Reviewer, MachineValidator, RuntimeComposition, and process/session observers without runtimeFactory injection. It also passes maxLunaWorkers and durable explicit Human Gate evidence into scheduler and merge gates; no empty approval set or unconditional unresolvedHumanGate false path remains.
+    test: npm test -- runtime scheduler controller checkpoint entrypoint config && npm run build && npm run lint
+  - id: AO-52
+    title: Prove a disposable GitHub real E2E
+    state: PLANNED
+    dependsOn: [AO-51]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [test/**, scripts/**, docs/agent-runs/**, docs/runbooks/**, tasks/agent-orchestrator-runtime-composition.yaml]
+    nonScope: [slot-or-kiji-operation, production-resource-operation, launchagent-install-load-register, more-than-one-minimal-task]
+    completion: One dedicated disposable GitHub repository proves real Issue READY through executable CLI dispatch, real worker branch/worktree/commit/push, validation, independent review and reviewed-HEAD persistence, deterministic merge/main push, Issue close, cleanup, and a second run-once that does not re-execute the completed task.
+    test: npm test && npm run build && npm run lint && packaging/launchd/manage.sh verify && concrete-entrypoint-disposable-run-once && disposable-github-real-e2e
+  - id: AO-53
+    title: Verify restart and recovery at real boundaries
+    state: PLANNED
+    dependsOn: [AO-52]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [test/**, scripts/**, docs/agent-runs/**, tasks/agent-orchestrator-runtime-composition.yaml]
+    nonScope: [production-resource-operation, launchagent-lifecycle, repeated-real-llm-runs-where-controlled-fixtures-suffice]
+    completion: With the disposable GitHub boundary established, controlled restart cases at running, worker-done/pre-review, and approved/pre-merge checkpoints prove no duplicate worker dispatch, merge, or Issue close; altered reviewed HEAD fails closed and each checkpoint resumes at its authoritative stage.
+    test: npm test -- runtime checkpoint reconcile controller && restart-verification
+  - id: AO-54
+    title: Perform final executable acceptance before LaunchAgent gate
+    state: PLANNED
+    dependsOn: [AO-52, AO-53]
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [docs/agent-runs/**, docs/task-boards/**, tasks/agent-orchestrator-runtime-composition.yaml]
+    nonScope: [code-fixes, launchagent-install-load-register, slot-or-kiji-operation, production-resource-operation]
+    completion: Terra records PASS only after all AO-48 through AO-53 executable, routing, local-lease, checkpoint/reviewed-HEAD, deterministic-merge, Issue-close/cleanup, non-reexecution, disposable-safety, and LaunchAgent-unloaded acceptance conditions pass. It then stops for an explicit LaunchAgent Human Gate.
+    test: npm test && npm run build && npm run lint && packaging/launchd/manage.sh verify && concrete-entrypoint-disposable-run-once && disposable-github-real-e2e && restart-verification

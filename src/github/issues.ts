@@ -11,6 +11,7 @@ export interface IssueSnapshot {
   readonly blockedBy: readonly number[];
 }
 export interface GhClient { run(args: readonly string[]): Promise<CommandResult>; }
+export interface TargetVerifiedGhClient extends GhClient { verifyTarget(targetRepo: string): Promise<void>; }
 export interface ProjectedIssues { readonly parent: IssueSnapshot; readonly tasks: ReadonlyMap<string, IssueSnapshot>; }
 export const PILOT_GH_REPO = "AZ-claude/slot";
 
@@ -22,8 +23,30 @@ export class GhCommandError extends Error {
 }
 
 export class CliGhClient implements GhClient {
-  constructor(private readonly runCommand: CommandRunner = defaultCommandRunner) {}
-  run(args: readonly string[]): Promise<CommandResult> { return this.runCommand("gh", [...args, "--repo", PILOT_GH_REPO]); }
+  constructor(private readonly runCommand: CommandRunner = defaultCommandRunner, readonly repository = PILOT_GH_REPO) {}
+  run(args: readonly string[]): Promise<CommandResult> { return this.runCommand("gh", [...args, "--repo", this.repository]); }
+}
+
+/** A GitHub boundary whose repository is selected by the runtime target. */
+export class TargetAwareGhClient implements GhClient {
+  constructor(private readonly runCommand: CommandRunner, readonly repository: string) {
+    if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) throw new Error("GitHub repository must be owner/name");
+  }
+  run(args: readonly string[]): Promise<CommandResult> { return this.runCommand("gh", [...args, "--repo", this.repository]); }
+  async verifyTarget(targetRepo: string): Promise<void> {
+    const remote = await this.runCommand("git", ["remote", "get-url", "origin"], { cwd: targetRepo });
+    if (remote.code !== 0) throw new Error("disposable target origin cannot be verified");
+    if (githubRepoFromRemote(remote.stdout.trim()) !== this.repository) throw new Error("disposable target origin does not match configured GitHub repository");
+    const viewed = await this.runCommand("gh", ["repo", "view", this.repository, "--json", "nameWithOwner"]);
+    if (viewed.code !== 0) throw new GhCommandError(["repo", "view"], viewed);
+    const parsed = JSON.parse(viewed.stdout) as { nameWithOwner?: unknown };
+    if (parsed.nameWithOwner !== this.repository) throw new Error("configured GitHub repository could not be verified");
+  }
+}
+
+export function githubRepoFromRemote(remote: string): string | null {
+  const match = remote.trim().match(/(?:github\.com[/:])([^/ :]+)\/([^/\s]+?)(?:\.git)?$/i);
+  return match?.[1] !== undefined && match[2] !== undefined ? `${match[1]}/${match[2]}` : null;
 }
 
 export const STATE_LABEL = (state: ExecutionState): string => `ao:state:${state}`;
@@ -40,9 +63,9 @@ export class GitHubIssueProjector {
     for (const task of manifest.tasks) {
       const found = await this.findByMarker(TASK_MARKER(task.id));
       const issue = found ?? await this.createIssue(task.title, this.taskBody(manifest, task, parent.number), parent.number, undefined);
-      if (found === null) await this.setState(issue.number, "ready");
+      if (found === null || !issue.labels.some((label) => label.startsWith("ao:state:"))) await this.setState(issue.number, "ready");
       if (found !== null && issue.parentNumber !== parent.number) await this.setParent(issue.number, parent.number);
-      tasks.set(task.id, { ...issue, labels: found === null ? [STATE_LABEL("ready")] : issue.labels, parentNumber: parent.number });
+      tasks.set(task.id, { ...issue, labels: found === null || !issue.labels.some((label) => label.startsWith("ao:state:")) ? [STATE_LABEL("ready")] : issue.labels, parentNumber: parent.number });
     }
     for (const task of manifest.tasks) {
       const issue = tasks.get(task.id);

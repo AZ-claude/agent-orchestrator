@@ -57,6 +57,13 @@ test("worker config defaults to cloud and validates explicit local/auto choices"
   assert.equal(configSchema.safeParse({ ...base, worker: { ...local, local: { ...local.local, ollamaBaseUrl: "http://user:pass@host:11434" } } }).success, false);
 });
 
+test("Human Gate approvals are explicit durable configuration, not Issue labels", () => {
+  const base = defaultPilotConfig();
+  const parsed = configSchema.parse({ ...base, humanGateApprovals: ["AO-51"] });
+  assert.deepEqual(parsed.humanGateApprovals, ["AO-51"]);
+  assert.equal(configSchema.safeParse({ ...base, humanGateApprovals: ["ao:state:ready"] }).success, true);
+});
+
 test("AO-43 accepts only an explicitly allowlisted disposable target and keeps production gated", () => {
   const runtime = parseRuntimeTargetConfig({
     target: "disposable",
@@ -68,6 +75,9 @@ test("AO-43 accepts only an explicitly allowlisted disposable target and keeps p
     assert.throws(() => parseRuntimeTargetConfig({ ...runtime, disposable: { ...runtime.disposable, targetRepo } }), /allowlist|allowlisted|allowed disposable|slot|kiji/);
   }
   assert.throws(() => parseRuntimeTargetConfig({ ...runtime, disposable: { ...runtime.disposable, allowedRoots: ["/tmp/other"] } }), /allowed disposable/);
+  for (const githubRepo of ["AZ-claude/slot", "AZ-claude/kiji"]) {
+    assert.throws(() => parseRuntimeTargetConfig({ ...runtime, disposable: { ...runtime.disposable, githubRepo } }), /protected \/slot or \/kiji/);
+  }
   const production = parseRuntimeTargetConfig({ ...runtime, target: "production" });
   assert.throws(() => assertDisposableRuntimeTarget(production), /production execution is not enabled/);
   assert.throws(() => parseRuntimeTargetConfig({ ...runtime, production: { ...runtime.production, enabled: true } }), /must equal false/);

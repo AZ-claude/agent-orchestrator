@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GitHubIssueProjector, GhClient, STATE_LABEL, TASK_MARKER } from "../src/github/index.js";
+import { GitHubIssueProjector, GhClient, STATE_LABEL, TASK_MARKER, TargetAwareGhClient, githubRepoFromRemote } from "../src/github/index.js";
 
 class FakeGh implements GhClient {
   next = 10;
@@ -45,4 +45,17 @@ test("reads parent/blocking fields and pins the gh repository", async () => {
   const snapshot = await new GitHubIssueProjector(client).readOpen();
   assert.equal(snapshot[0]?.parentNumber, 2);
   assert.deepEqual(snapshot[0]?.blockedBy, [3]);
+});
+
+test("target-aware GitHub boundary rejects a mismatched local origin before Issue access", async () => {
+  assert.equal(githubRepoFromRemote("git@github.com:example/disposable.git"), "example/disposable");
+  assert.equal(githubRepoFromRemote("https://github.com/example/disposable"), "example/disposable");
+  const calls: string[][] = [];
+  const client = new TargetAwareGhClient(async (command, args) => {
+    calls.push([command, ...args]);
+    if (command === "git") return { stdout: "https://github.com/example/other.git\n", stderr: "", code: 0 };
+    return { stdout: JSON.stringify({ nameWithOwner: "example/disposable" }), stderr: "", code: 0 };
+  }, "example/disposable");
+  await assert.rejects(() => client.verifyTarget("/tmp/disposable"), /does not match/);
+  assert.equal(calls.filter((call) => call[0] === "gh").length, 0);
 });
