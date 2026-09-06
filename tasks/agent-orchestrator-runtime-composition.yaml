@@ -108,7 +108,7 @@ tasks:
     test: npm test && npm run build && npm run lint && packaging/launchd/manage.sh verify && concrete-entrypoint-disposable-run-once && disposable-github-real-e2e
   - id: AO-53
     title: Verify restart and recovery at real boundaries
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-52]
     parallel: EXCLUSIVE
     humanGate: false
