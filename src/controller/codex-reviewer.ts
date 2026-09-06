@@ -31,7 +31,7 @@ export class CodexReadOnlyReviewer implements IndependentReviewer {
       const result = await this.execute({
         executable: this.executable,
         // A new exec invocation intentionally has no --resume/session input.
-        args: ["exec", "--ephemeral", "--sandbox", "read-only", buildReviewPrompt(packet)],
+        args: ["exec", "--sandbox", "read-only", buildReviewPrompt(packet)],
         cwd: packet.worktree,
       });
       return parseReview(result.stdout);
@@ -42,7 +42,7 @@ export class CodexReadOnlyReviewer implements IndependentReviewer {
 }
 
 async function executeCodexReadOnly(invocation: ReadOnlyReviewerInvocation): Promise<{ readonly stdout: string }> {
-  const result = await run(invocation.executable, [...invocation.args], { cwd: invocation.cwd, maxBuffer: 2 * 1024 * 1024 });
+  const result = await run(invocation.executable, [...invocation.args], { cwd: invocation.cwd, maxBuffer: 2 * 1024 * 1024, timeout: 120_000 });
   return { stdout: result.stdout };
 }
 

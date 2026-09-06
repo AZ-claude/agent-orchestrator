@@ -35,7 +35,7 @@ test("concrete reviewer starts a fresh sandboxed read-only process with only pac
   });
 
   assert.equal(await reviewer.review(packet), "APPROVE");
-  assert.deepEqual(invocation?.args.slice(0, 4), ["exec", "--ephemeral", "--sandbox", "read-only"]);
+  assert.deepEqual(invocation?.args.slice(0, 3), ["exec", "--sandbox", "read-only"]);
   assert.equal(invocation?.cwd, packet.worktree);
   const prompt = invocation?.args.at(-1) ?? "";
   assert.match(prompt, /Source HEAD: 1234567890abcdef/);
