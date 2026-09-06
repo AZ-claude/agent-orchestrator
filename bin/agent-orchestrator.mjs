@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-export async function main(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
+export async function main(argv = process.argv.slice(2), env = process.env, cwd = process.cwd(), overrides = {}) {
   if (argv[0] === "--help" || argv[0] === "-h") {
     process.stdout.write("usage: agent-orchestrator <bootstrap|run-once|daemon|reconcile|status|preflight>\n");
     return;
@@ -9,7 +9,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, cwd 
     import("../dist/src/cli/cli.js"),
     import("../dist/src/cli/app.js"),
   ]);
-  await runCli(argv, createCliOperations({ cwd, env }));
+  await runCli(argv, createCliOperations({ cwd, env, ...overrides }));
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

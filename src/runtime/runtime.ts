@@ -26,6 +26,7 @@ export interface RuntimeWorkerBoundary {
 }
 
 export interface RuntimeIssueBoundary {
+  readonly verifyTarget?: () => Promise<void>;
   readonly readOpen: () => Promise<readonly IssueSnapshot[]>;
   readonly setState: (issueNumber: number, state: ExecutionState) => Promise<void>;
   readonly close: (issueNumber: number) => Promise<void>;
@@ -48,6 +49,9 @@ export interface RuntimeCompositionDependencies {
   readonly sessionExists?: (sessionId: string) => Promise<boolean>;
   readonly now?: () => Date;
   readonly retryIntervalMs: number;
+  readonly maxLunaWorkers?: number;
+  /** Explicit durable approval evidence for tasks declaring a Human Gate. */
+  readonly humanGateApproved?: (taskId: string) => boolean;
   readonly activeMergeBarrier?: () => boolean;
 }
 
@@ -86,6 +90,7 @@ export class RuntimeComposition {
   }
 
   async poll(): Promise<RuntimePollResult> {
+    await this.deps.issues.verifyTarget?.();
     const issues = await this.deps.issues.readOpen();
     const checkpoints = await this.checkpoints.list();
     const issueByTask = indexTaskIssues(issues, this.deps.manifest);
@@ -150,10 +155,11 @@ export class RuntimeComposition {
     const open = new Set([...issueByTask.entries()].filter(([, issue]) => issue.state === "OPEN").map(([taskId]) => taskId));
     const states = new Map(checkpoints.map((checkpoint) => [checkpoint.taskId, checkpoint.executionState ?? "running" as ExecutionState]));
     const dependencyEvidence = new Set(this.deps.manifest.tasks.filter((task) => task.dependsOn.every((dependency) => closed.has(dependency))).map((task) => task.id));
+    const humanGates = new Set(this.deps.manifest.tasks.filter((task) => task.humanGate && (this.deps.humanGateApproved?.(task.id) ?? false)).map((task) => task.id));
     const ready = new DeterministicScheduler().planDispatch({
-      tasks: schedulerTasks(this.deps.manifest, states, closed, new Set(), open, dependencyEvidence),
+      tasks: schedulerTasks(this.deps.manifest, states, closed, humanGates, open, dependencyEvidence),
       running: checkpoints.filter((checkpoint) => checkpoint.executionState === "running").map((checkpoint) => ({ taskId: checkpoint.taskId, parallel: this.task(checkpoint.taskId).parallel })),
-      maxLunaWorkers: 1,
+      maxLunaWorkers: this.deps.maxLunaWorkers ?? 1,
       mergeBarrierActive: this.deps.activeMergeBarrier?.() ?? false,
     });
     const next = ready[0];
@@ -270,7 +276,8 @@ export class RuntimeComposition {
   private async merge(checkpoint: Checkpoint, packet: ReviewPacket): Promise<MergeGateResult> {
     const current = await this.requiredCheckpoint(checkpoint.taskId);
     await this.save({ ...current, executionState: "reviewing", reviewedHead: packet.head, review: { result: "APPROVE", cycle: Math.max(1, current.review?.cycle ?? 1) } });
-    return this.git.mergeReviewedBranch({ repo: this.target.targetRepo, baseBranch: this.target.baseBranch, sourceBranch: checkpoint.branch, sourceWorktree: checkpoint.worktree, facts: { requiredTestsPass: packet.test.pass, machineValidationPass: this.validator.isPass(packet), scopePass: packet.scope === "PASS", unexpectedDiffPass: packet.unexpectedFiles.length === 0, cleanWorktree: packet.clean, pushedBranch: packet.pushed, dependencyBasePass: packet.dependencies === "PASS" && packet.baseAncestor === "PASS", reviewedHead: packet.head, currentHead: packet.head, unresolvedHumanGate: false, activeMergeBarrier: this.deps.activeMergeBarrier?.() ?? false } });
+    const task = this.task(checkpoint.taskId);
+    return this.git.mergeReviewedBranch({ repo: this.target.targetRepo, baseBranch: this.target.baseBranch, sourceBranch: checkpoint.branch, sourceWorktree: checkpoint.worktree, facts: { requiredTestsPass: packet.test.pass, machineValidationPass: this.validator.isPass(packet), scopePass: packet.scope === "PASS", unexpectedDiffPass: packet.unexpectedFiles.length === 0, cleanWorktree: packet.clean, pushedBranch: packet.pushed, dependencyBasePass: packet.dependencies === "PASS" && packet.baseAncestor === "PASS", reviewedHead: packet.head, currentHead: packet.head, unresolvedHumanGate: task.humanGate && !(this.deps.humanGateApproved?.(task.id) ?? false), activeMergeBarrier: this.deps.activeMergeBarrier?.() ?? false } });
   }
 
   private async resumeForRework(checkpoint: Checkpoint, task: ManifestTask, issue: IssueSnapshot, reason: string): Promise<void> {
@@ -342,9 +349,10 @@ export class RuntimeComposition {
   private retryAt(): string { return new Date((this.deps.now?.() ?? new Date()).getTime() + this.deps.retryIntervalMs).toISOString(); }
 }
 
-export function createRuntimeIssueBoundary(client: GhClient): RuntimeIssueBoundary {
+export function createRuntimeIssueBoundary(client: GhClient, targetRepo?: string): RuntimeIssueBoundary {
   const projector = new GitHubIssueProjector(client);
   return {
+    ...(targetRepo !== undefined && "verifyTarget" in client && typeof client.verifyTarget === "function" ? { verifyTarget: () => (client as import("../github/index.js").TargetVerifiedGhClient).verifyTarget(targetRepo) } : {}),
     readOpen: () => projector.readOpen(),
     setState: (issueNumber, state) => projector.setState(issueNumber, state),
     close: (issueNumber) => projector.close(issueNumber),
@@ -360,7 +368,9 @@ export function createRuntimeIssueBoundary(client: GhClient): RuntimeIssueBounda
   };
 }
 
-function promptFor(task: ManifestTask): string { return `Implement ${task.id}: ${task.title}`; }
+function promptFor(task: ManifestTask): string {
+  return [`Implement exactly ${task.id}: ${task.title}.`, "Work only in the assigned worktree and allowed paths.", "Run the task verification command, then commit the change and push the assigned branch. Do not merge main or operate production resources."].join(" ");
+}
 
 function indexTaskIssues(issues: readonly IssueSnapshot[], manifest: TaskManifest): ReadonlyMap<string, IssueSnapshot> {
   const result = new Map<string, IssueSnapshot>();

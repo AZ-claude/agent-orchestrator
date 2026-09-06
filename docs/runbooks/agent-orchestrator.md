@@ -23,9 +23,10 @@ For the AO-43+ runtime-composition phase, add the explicit `runtime` block from
 `runtime-composition-config.example.yaml`. Its `disposable.targetRepo` must be
 inside `allowedRoots`; `/slot` and `/kiji` are rejected. The `production` block
 is retained as a future declaration but is hard-disabled (`enabled: false`), and
-the runtime refuses to execute it. A runtime `run-once` requires an injected
-composition with an Independent Reviewer boundary; absent that boundary it
-fails closed before dispatch.
+the runtime refuses to execute it. A runtime `run-once` constructs the concrete
+composition from the selected target and worker config; test-only composition
+injection remains available. The read-only Independent Reviewer boundary fails
+closed when its executable capability is unavailable.
 
 ## Failure diagnosis
 

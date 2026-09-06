@@ -93,3 +93,17 @@ test("AO-46 restart observations are checkpoint-driven and do not duplicate a ru
   const runtime = new RuntimeComposition({ target: targetConfig(repo), manifest: runtimeManifest, stateRoot: state, issues, checkpoints, workers: fakeWorker(repo, counters) as never, reviewer: { review: async () => "APPROVE" }, retryIntervalMs: 1000, isProcessAlive: () => true, sessionExists: async () => true });
   assert.deepEqual(await runtime.poll(), { kind: "watching", taskId: "AO-43", action: "watch" }); assert.equal(counters.starts, 0);
 });
+
+test("AO-53 fails closed when a reviewed source HEAD changes before restart merge", async () => {
+  const { repo, state } = await fixture();
+  const runtimeManifest = { ...manifest, handoff: { ...manifest.handoff, targetRepo: repo } };
+  const issues = new FakeIssues(); issues.issue = { ...issues.issue, labels: ["ao:state:reviewing"] };
+  const git = new GitAdapter(); const info = await git.prepareWorktree(repo, "AO-43", state, "main");
+  await writeFile(join(info.path, "change.txt"), "reviewed\n"); await execFile("git", ["add", "change.txt"], { cwd: info.path }); await execFile("git", ["commit", "-m", "reviewed"], { cwd: info.path }); await execFile("git", ["push", "-u", "origin", "agent/AO-43"], { cwd: info.path });
+  const reviewedHead = await git.head(info.path);
+  await writeFile(join(info.path, "change.txt"), "changed-after-review\n"); await execFile("git", ["add", "change.txt"], { cwd: info.path }); await execFile("git", ["commit", "-m", "changed-after-review"], { cwd: info.path }); await execFile("git", ["push", "origin", "agent/AO-43"], { cwd: info.path });
+  const checkpoints = new CheckpointStore(state);
+  await checkpoints.save({ issueNumber: 1, taskId: "AO-43", phase: "luna", attempt: 1, sessionId: null, branch: info.branch, worktree: info.path, pid: null, lastHead: reviewedHead, retryAt: null, executionState: "reviewing", lifecycle: "RETIRED", workerRole: "primary", review: { result: "APPROVE", cycle: 1 }, reviewedHead });
+  const result = await new RuntimeComposition({ target: targetConfig(repo), manifest: runtimeManifest, stateRoot: state, issues, checkpoints, git, workers: fakeWorker(repo, { starts: 0, resumes: 0 }) as never, reviewer: { review: async () => "APPROVE" }, retryIntervalMs: 1000 }).poll();
+  assert.equal(result.kind, "blocked-human"); assert.equal(issues.issue.state, "OPEN"); assert.ok(issues.calls.includes("state:blocked-human"));
+});

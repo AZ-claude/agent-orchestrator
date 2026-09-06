@@ -68,14 +68,25 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
   return {
     bootstrap: async () => {
       const runtime = await load();
-      await new GitHubIssueProjector(gh).project(runtime.manifest);
+      const targetRepository = runtime.config.runtime === undefined ? undefined : requiredTargetRepository(runtime.config.runtime.disposable.githubRepo);
+      if (runtime.config.runtime !== undefined) assertDisposableRuntimeTarget(runtime.config.runtime);
+      const targetGh = runtime.config.runtime === undefined
+        ? gh
+        : options.gh === undefined
+          ? new TargetAwareGhClient(defaultCommandRunner, requiredTargetRepository(targetRepository))
+          : requireTargetAwareGh(options.gh, requiredTargetRepository(targetRepository));
+      if (runtime.config.runtime !== undefined) await requireTargetAwareGh(targetGh, requiredTargetRepository(targetRepository)).verifyTarget(runtime.config.runtime.disposable.targetRepo);
+      await new GitHubIssueProjector(targetGh).project(runtime.manifest);
       logger.info("bootstrap_complete", { manifest: runtime.manifest.handoff.id });
     },
     runOnce: async () => {
       const runtime = await load();
       if (runtime.config.runtime !== undefined) {
-        if (options.runtimeFactory === undefined) throw new Error("runtime composition is unavailable; provide an AO-43+ runtime factory");
-        const result = await options.runtimeFactory(runtime).poll();
+        const target = assertDisposableRuntimeTarget(runtime.config.runtime);
+        const configuredRepo = requiredTargetRepository(target.githubRepo);
+        const targetGh = options.gh === undefined ? new TargetAwareGhClient(defaultCommandRunner, configuredRepo) : requireTargetAwareGh(options.gh, configuredRepo);
+        await targetGh.verifyTarget(target.targetRepo);
+        const result = await (options.runtimeFactory?.(runtime) ?? createConcreteRuntime(runtime, targetGh)).poll();
         logger.info("run_once_complete", { kind: result.kind, ...(result.taskId === undefined ? {} : { taskId: result.taskId }) });
         return;
       }
