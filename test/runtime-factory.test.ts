@@ -16,7 +16,7 @@ test("AO-50 factory assembles the concrete runtime from cloud configuration", as
     production: { enabled: false, targetRepo: "/Users/eita/projects/slot", baseBranch: "main", githubRepo: "AZ-claude/slot" },
   };
   const base = defaultPilotConfig();
-  const runtime = { root: process.cwd(), config: { ...base, runtime: target, worker: { mode: "cloud", primary: "cloud", recovery: "cloud" } }, manifest, checkpoints: [] };
+  const runtime = { root: process.cwd(), config: { ...base, runtime: target, worker: { mode: "cloud" as const, primary: "cloud" as const, recovery: "cloud" as const } }, manifest, checkpoints: [] };
   const gh = new TargetAwareGhClient(async () => ({ stdout: "", stderr: "", code: 0 }), "example/disposable");
   assert.ok(createConcreteRuntime(runtime, gh) instanceof RuntimeComposition);
 });
