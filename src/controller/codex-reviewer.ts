@@ -1,11 +1,8 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import { parsePlanConflictClaim } from "../config/index.js";
 import { IndependentReview } from "../luna/index.js";
 import { ReviewPacket } from "../validation/index.js";
 import { IndependentReviewer } from "./controller.js";
-
-const run = promisify(execFile);
 
 export interface ReadOnlyReviewerInvocation {
   readonly executable: string;
@@ -42,8 +39,40 @@ export class CodexReadOnlyReviewer implements IndependentReviewer {
 }
 
 async function executeCodexReadOnly(invocation: ReadOnlyReviewerInvocation): Promise<{ readonly stdout: string }> {
-  const result = await run(invocation.executable, [...invocation.args], { cwd: invocation.cwd, maxBuffer: 2 * 1024 * 1024, timeout: 120_000 });
-  return { stdout: result.stdout };
+  // Ignore stdin. Codex otherwise waits for an interactive follow-up after
+  // the prompt, which would turn a one-shot reviewer into a timeout.
+  return new Promise((resolve, reject) => {
+    const child = spawn(invocation.executable, [...invocation.args], { cwd: invocation.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      reject(new Error("read-only reviewer timed out after 120000ms"));
+    }, 120_000);
+    const fail = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child.kill("SIGTERM"); } catch { /* process may already be gone */ }
+      reject(error);
+    };
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+      if (stdout.length > 2 * 1024 * 1024) fail(new Error("read-only reviewer output exceeded 2 MiB"));
+    });
+    child.stderr.on("data", (chunk: Buffer | string) => { stderr += chunk.toString(); });
+    child.on("error", fail);
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) resolve({ stdout });
+      else reject(new Error(`read-only reviewer exited with ${code === null ? signal ?? "unknown signal" : code}: ${stderr.slice(-500)}`));
+    });
+  });
 }
 
 /** Minimal canonical review input; deliberately excludes worker/rework history. */
