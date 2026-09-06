@@ -6,6 +6,7 @@ Status: **PASS**
 ## Checkpoint commits
 
 The source branch `codex/ao-48-54-runtime-executable` is pushed to GitHub.
+Final source commit for this acceptance: `c3ad9f3918b3b71c3abeb0bc5f4e57ce9ff8fac0`.
 
 | Task | Remote checkpoint SHA |
 | --- | --- |
