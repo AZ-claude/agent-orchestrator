@@ -98,7 +98,7 @@ tasks:
     test: npm test -- runtime scheduler controller checkpoint entrypoint config && npm run build && npm run lint
   - id: AO-52
     title: Prove a disposable GitHub real E2E
-    state: PLANNED
+    state: DONE
     dependsOn: [AO-51]
     parallel: EXCLUSIVE
     humanGate: false

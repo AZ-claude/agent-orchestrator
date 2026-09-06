@@ -1,6 +1,6 @@
 # AO-43+ runtime composition and disposable E2E
 
-Status: **PASS for AO-43〜AO-51; AO-52〜AO-54 PLANNED.** AO-48 was revised from a confirmed task-decomposition PLAN_CONFLICT, not an implementation failure or Human Gate. This phase is deliberately separate from AO-41/AO-42:
+Status: **PASS for AO-43〜AO-52; AO-53〜AO-54 PLANNED.** AO-48 was revised from a confirmed task-decomposition PLAN_CONFLICT, not an implementation failure or Human Gate. This phase is deliberately separate from AO-41/AO-42:
 those tasks accepted fixed local-Qwen allocation only, not daemon operation.
 No task in this board may install, bootstrap, load, or register a LaunchAgent,
 or operate `/slot` or `/kiji` production resources.
@@ -105,7 +105,7 @@ AO-47 accepted composition
 
 ### AO-52 — Disposable GitHub real E2E
 
-- State: PLANNED; dependencies: AO-51; parallel: EXCLUSIVE;
+- State: DONE; dependencies: AO-51; parallel: EXCLUSIVE;
   Human Gate: none.
 - Create/use one dedicated disposable GitHub repository—never `/slot` or
   `/kiji`—and one minimal Issue. From the real CLI prove:
