@@ -4,7 +4,7 @@ Date: 2026-09-07 JST
 Status: **PASS for the reworked source branch**
 
 Final source branch: `codex/ao-48-54-runtime-executable`
-Source HEAD used for the successful fresh E2E: `2fdeb006e5f64afaac2d7745ac54ef5fd4397321`
+Source HEAD used for the successful fresh E2E: `4f3e63fd35561ce526035e9d31550d15616bf921`
 
 ## Checkpoint commits
 
@@ -20,6 +20,7 @@ Source HEAD used for the successful fresh E2E: `2fdeb006e5f64afaac2d7745ac54ef5f
 | AO-51 nonblocking poll rework | `e41ec7f091d6664188a1006c54b4020d60f5219a` |
 | AO-52 fresh E2E task | `f72fa722e4b2f9ec774747a64711c558ec746ec8` |
 | AO-49 reviewer stdin rework + E2E V2 task | `2fdeb006e5f64afaac2d7745ac54ef5fd4397321` |
+| AO-52 final-source E2E V3 task | `4f3e63fd35561ce526035e9d31550d15616bf921` |
 
 All rows are full SHAs in the pushed ancestry; the final row is the final
 source HEAD used by the successful fresh real E2E.
@@ -50,10 +51,10 @@ pushed board/manifest, and this evidence file is part of the final checkpoint.
 ## Fresh real AO-52 E2E
 
 The successful E2E was run from source HEAD
-`2fdeb006e5f64afaac2d7745ac54ef5fd4397321`, after the detached worker,
+`4f3e63fd35561ce526035e9d31550d15616bf921`, after the detached worker,
 checkpoint-authoritative fallback, and current reviewer stdin/timeout fixes.
 It used disposable repository `AZ-claude/agent-orchestrator-disposable-20260906`,
-Issue `#5`, Task `AO-52-FINAL-E2E-20260907-V2`, and real Worker provider
+Issue `#6`, Task `AO-52-FINAL-E2E-20260907-V3`, and real Worker provider
 Cloud/Luna (`codex`, session
 `01a07927-b872-7c01-b7fe-5893a25c90d9`).
 
@@ -62,7 +63,7 @@ Worker branch/worktree/commit/push → validation → current
 `CodexReadOnlyReviewer` APPROVE → reviewed HEAD persistence → deterministic
 merge and main push → Issue close → worktree cleanup. Worker commit,
 reviewed HEAD, task branch, and target `main` are all
-`e57ae70732491f133efb74f36ccad99732bbbcdd`. The durable checkpoint records
+`e75be45c0fe643a457975418b42ea2bbca079af6`. The durable checkpoint records
 `processOutcome: success`, `review: APPROVE`, `reviewedHead` equal to that
 merged HEAD, and lifecycle `CLEANUP`. A second `run-once` returned
 `completed`/skip and dispatched no Worker.
@@ -83,8 +84,8 @@ was retained as audit history.
 - Local contract: `ollama/qwen3.8:latest`, context `262144`, read-only
   preflight, and shared lease. The local model was not invoked by the real
   Cloud E2E; contract and lease tests passed.
-- Reviewed HEAD: `e57ae70732491f133efb74f36ccad99732bbbcdd`.
-- Merged HEAD: `e57ae70732491f133efb74f36ccad99732bbbcdd`.
+- Reviewed HEAD: `e75be45c0fe643a457975418b42ea2bbca079af6`.
+- Merged HEAD: `e75be45c0fe643a457975418b42ea2bbca079af6`.
 
 ## Boundaries and final gate
 
