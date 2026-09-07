@@ -2,7 +2,7 @@ import { Checkpoint } from "../config/index.js";
 import { CheckpointStore } from "../checkpoint/index.js";
 import { addWorkerEvidence } from "./evidence.js";
 import { WorkerDispatcher, WorkerDispatchHandle, WorkerDispatchResult } from "./routing.js";
-import { WorkerRecoveryEvidence } from "./worker.js";
+import { WorkerProcessStarted, WorkerRecoveryEvidence } from "./worker.js";
 
 export interface DurableWorkerDispatchOptions {
   readonly checkpoint: Checkpoint;
@@ -40,7 +40,8 @@ export class DurableWorkerRuntime {
     const dispatch = options.recoveryEvidence === undefined
       ? await this.dispatcher.startDetached(options.prompt, options.worktree, options.checkpoint.workerRole ?? "primary")
       : await this.dispatcher.startRecoveryDetached(options.recoveryEvidence, options.prompt, options.worktree);
-    await this.persistStarted(options.checkpoint, dispatch, options.runId, options.localModel);
+    dispatch.setTransitionListener?.((started, routing) => this.persistStartedFacts(options.checkpoint, started, routing, options.runId, options.localModel));
+    await this.persistStartedFacts(options.checkpoint, dispatch.started, dispatch.routing, options.runId, options.localModel);
     return {
       ...dispatch,
       completion: dispatch.completion.then((result) => this.persist(options.checkpoint, result, options.runId, options.localModel)),
@@ -50,7 +51,8 @@ export class DurableWorkerRuntime {
   async resumeDetached(options: DurableWorkerResumeOptions): Promise<WorkerDispatchHandle> {
     this.dispatcher.restore(options.checkpoint);
     const dispatch = await this.dispatcher.resumeDetached(options.sessionId, options.prompt, options.worktree, options.checkpoint.workerRole ?? "primary");
-    await this.persistStarted(options.checkpoint, dispatch, options.runId, options.localModel);
+    dispatch.setTransitionListener?.((started, routing) => this.persistStartedFacts(options.checkpoint, started, routing, options.runId, options.localModel));
+    await this.persistStartedFacts(options.checkpoint, dispatch.started, dispatch.routing, options.runId, options.localModel);
     return {
       ...dispatch,
       completion: dispatch.completion.then((result) => this.persist(options.checkpoint, result, options.runId, options.localModel)),
@@ -61,24 +63,25 @@ export class DurableWorkerRuntime {
     return this.dispatcher.retire(pid);
   }
 
-  private async persistStarted(checkpoint: Checkpoint, dispatch: WorkerDispatchHandle, runId: string, localModel?: string): Promise<void> {
+  private async persistStartedFacts(checkpoint: Checkpoint, started: WorkerProcessStarted, routing: WorkerDispatchHandle["routing"], runId: string, localModel?: string): Promise<void> {
     const current = await this.checkpoints.load(checkpoint.taskId) ?? checkpoint;
     await this.checkpoints.save({
       ...current,
       issueNumber: checkpoint.issueNumber,
       taskId: checkpoint.taskId,
       phase: "luna",
-      sessionId: dispatch.started.sessionId,
-      pid: dispatch.started.pid ?? null,
+      sessionId: started.sessionId,
+      pid: started.pid ?? null,
       runId,
-      workerRole: dispatch.started.role,
-      workerProvider: dispatch.started.provider,
-      workerAdapter: dispatch.started.adapter,
-      workerMode: dispatch.routing.mode,
-      configuredPrimary: dispatch.routing.configuredPrimary,
-      configuredRecovery: dispatch.routing.configuredRecovery,
+      workerRole: started.role,
+      workerProvider: started.provider,
+      workerAdapter: started.adapter,
+      workerMode: routing.mode,
+      configuredPrimary: routing.configuredPrimary,
+      configuredRecovery: routing.configuredRecovery,
+      ...(routing.fallback === undefined ? {} : { providerFallback: routing.fallback }),
       ...(localModel === undefined ? {} : { localModel }),
-      ...(dispatch.started.lease === undefined ? {} : { localLease: dispatch.started.lease }),
+      ...(started.lease === undefined ? {} : { localLease: started.lease }),
       lifecycle: "ACTIVE",
       executionState: "running",
       retryAt: null,

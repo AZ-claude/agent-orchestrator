@@ -10,7 +10,7 @@ import { parseRuntimeTargetConfig, RuntimeTargetConfig, TaskManifest } from "../
 import { GitAdapter } from "../src/git/index.js";
 import { IssueSnapshot, TASK_MARKER } from "../src/github/index.js";
 import { RuntimeComposition, RuntimeIssueBoundary } from "../src/runtime/index.js";
-import { WorkerDispatchHandle, WorkerDispatchResult } from "../src/worker/index.js";
+import { DurableWorkerDispatchOptions, DurableWorkerResumeOptions, DurableWorkerRuntime, ImplementationWorkerAdapter, WorkerDispatcher, WorkerDispatchHandle, WorkerDispatchResult, WorkerRunRouter } from "../src/worker/index.js";
 import { WorkerProcessHandle } from "../src/worker/worker.js";
 
 const execFile = promisify(nodeExecFile);
@@ -152,4 +152,107 @@ test("detached runtime dispatch fills two SAFE slots with distinct durable proce
   assert.equal(new Set(saved.map((checkpoint) => checkpoint.pid)).size, 2);
   assert.equal(new Set(saved.map((checkpoint) => checkpoint.worktree)).size, 2);
   assert.equal(new Set(saved.map((checkpoint) => checkpoint.branch)).size, 2);
+});
+
+test("A: restart discovers a detached worker commit/push from Git without completion callback or duplicate dispatch", async () => {
+  const { repo, state } = await fixture();
+  const runtimeManifest = { ...manifest, handoff: { ...manifest.handoff, targetRepo: repo } };
+  const issues = new FakeIssues();
+  const checkpoints = new CheckpointStore(state);
+  let starts = 0;
+  const routing = { mode: "cloud" as const, configuredPrimary: "cloud" as const, configuredRecovery: "cloud" as const, latchedProvider: null };
+  const workers = {
+    start: async (_options: DurableWorkerDispatchOptions): Promise<WorkerDispatchResult> => { throw new Error("unexpected blocking dispatch"); },
+    startDetached: async (options: DurableWorkerDispatchOptions): Promise<WorkerDispatchHandle> => {
+      starts += 1;
+      await checkpoints.save({ ...options.checkpoint, pid: 701, workerProvider: "cloud", workerAdapter: "codex/luna", workerMode: "cloud", configuredPrimary: "cloud", configuredRecovery: "cloud", lifecycle: "ACTIVE", executionState: "running" });
+      return {
+        started: { provider: "cloud", adapter: "codex/luna", role: "primary", sessionId: null, pid: 701, logPath: "/tmp/a.log", fresh: true, resumable: false },
+        routing,
+        completion: new Promise<WorkerDispatchResult>(() => undefined),
+      };
+    },
+    resume: async (_options: DurableWorkerResumeOptions): Promise<WorkerDispatchResult> => { throw new Error("unexpected resume"); },
+    retire: async (_pid?: number): Promise<boolean> => false,
+  };
+  const firstRuntime = new RuntimeComposition({ target: targetConfig(repo), manifest: runtimeManifest, stateRoot: state, issues, checkpoints, workers: workers as never, reviewer: { review: async () => "APPROVE" }, retryIntervalMs: 1000, isProcessAlive: () => true });
+  assert.equal((await firstRuntime.poll()).kind, "dispatched");
+
+  const checkpoint = await checkpoints.load("AO-43");
+  assert.ok(checkpoint);
+  await writeFile(join(checkpoint.worktree, "change.txt"), "restart-completed\n");
+  await execFile("git", ["add", "change.txt"], { cwd: checkpoint.worktree });
+  await execFile("git", ["commit", "-m", "restart completion"], { cwd: checkpoint.worktree });
+  await execFile("git", ["push", "-u", "origin", checkpoint.branch], { cwd: checkpoint.worktree });
+
+  const restarted = new RuntimeComposition({ target: targetConfig(repo), manifest: runtimeManifest, stateRoot: state, issues, checkpoints, workers: workers as never, reviewer: { review: async () => "APPROVE" }, retryIntervalMs: 1000, isProcessAlive: () => false });
+  const result = await restarted.poll();
+  assert.equal(result.kind, "completed");
+  assert.equal(starts, 1);
+  assert.equal(issues.issue.state, "CLOSED");
+  assert.equal((await checkpoints.load("AO-43"))?.lifecycle, "CLEANUP");
+});
+
+test("B/C: fallback transition is durable while Local runs and completion is recovered after restart", async () => {
+  const { repo, state } = await fixture();
+  const runtimeManifest = { ...manifest, handoff: { ...manifest.handoff, targetRepo: repo } };
+  const issues = new FakeIssues();
+  const checkpoints = new CheckpointStore(state);
+  const localModel = "ollama/qwen3.8:latest";
+  let starts = 0;
+  let localStarts = 0;
+  let cloudResolve!: (run: { provider: "cloud"; adapter: "codex/luna"; role: "primary"; sessionId: null; pid: number; outcome: "availability-limit"; availabilityReason: "QUOTA_LIMIT"; exitCode: number; stderr: never[]; logPath: string; fresh: true; resumable: false }) => void;
+  const cloudCompletion = new Promise<Parameters<typeof cloudResolve>[0]>((resolve) => { cloudResolve = resolve; });
+  const localCompletion = new Promise<never>(() => undefined);
+  const cloud: ImplementationWorkerAdapter = {
+    provider: "cloud",
+    start: async () => { throw new Error("unexpected blocking cloud dispatch"); },
+    startDetached: async (_prompt, _worktree, role) => ({ started: { provider: "cloud", adapter: "codex/luna", role, sessionId: null, pid: 711, logPath: "/tmp/cloud.log", fresh: true, resumable: false }, completion: cloudCompletion }),
+    resume: async () => { throw new Error("unexpected cloud resume"); },
+    startRecovery: async () => { throw new Error("unexpected cloud recovery"); },
+    retire: async () => false,
+  };
+  const local: ImplementationWorkerAdapter = {
+    provider: "local",
+    start: async () => { throw new Error("unexpected blocking local dispatch"); },
+    startDetached: async (_prompt, _worktree, role) => { localStarts += 1; return { started: { provider: "local", adapter: "opencode", role, sessionId: "local-session", pid: 712, logPath: "/tmp/local.log", fresh: true, resumable: false, lease: { status: "acquired" as const, owner: "agent-orchestrator" as const, model: localModel, pid: 712 } }, completion: localCompletion }; },
+    resume: async () => { throw new Error("unexpected local resume"); },
+    startRecovery: async () => { throw new Error("unexpected local recovery"); },
+    retire: async () => false,
+  };
+  const dispatcher = new WorkerDispatcher(new WorkerRunRouter({ mode: "auto", primary: "cloud", recovery: "local", local: { executable: "/tmp/opencode", model: localModel, contextTokens: 262144, workdir: "/tmp", ollamaBaseUrl: "http://127.0.0.1:11434", configPath: "/tmp/config", leasePath: join(state, "lease") } }), { cloud, local }, async () => true);
+  const durable = new DurableWorkerRuntime(dispatcher, checkpoints);
+  const info = await new GitAdapter().prepareWorktree(repo, "AO-43", state, "main");
+  const base = { issueNumber: 1, taskId: "AO-43", phase: "luna" as const, attempt: 1, sessionId: null, branch: info.branch, worktree: info.path, pid: null, lastHead: null, retryAt: null, executionState: "running" as const };
+  const oldHandle = await durable.startDetached({ checkpoint: base, prompt: "task", worktree: info.path, runId: "AO-43-1", localModel });
+  assert.equal(oldHandle.started.provider, "cloud");
+  let completionError: unknown;
+  void oldHandle.completion.catch((error: unknown) => { completionError = error; });
+  cloudResolve({ provider: "cloud", adapter: "codex/luna", role: "primary", sessionId: null, pid: 711, outcome: "availability-limit", availabilityReason: "QUOTA_LIMIT", exitCode: 1, stderr: [], logPath: "/tmp/cloud.log", fresh: true, resumable: false });
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if ((await checkpoints.load("AO-43"))?.workerProvider === "local") break;
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+  const fallbackCheckpoint = await checkpoints.load("AO-43");
+  assert.equal(localStarts, 1);
+  if (fallbackCheckpoint?.workerProvider !== "local" && completionError !== undefined) throw completionError;
+  assert.equal(fallbackCheckpoint?.workerProvider, "local");
+  assert.equal(fallbackCheckpoint?.pid, 712);
+  assert.deepEqual(fallbackCheckpoint?.providerFallback, { from: "cloud", to: "local", reason: "QUOTA_LIMIT", latched: true });
+  assert.deepEqual(fallbackCheckpoint?.localLease, { status: "acquired", owner: "agent-orchestrator", model: localModel, pid: 712 });
+
+  const regeneratedWhileLocalRuns = new RuntimeComposition({ target: targetConfig(repo), manifest: runtimeManifest, stateRoot: state, issues, checkpoints, workers: { start: async () => { starts += 1; throw new Error("running local fallback must not redispatch"); }, resume: async () => { throw new Error("running local fallback must not resume"); }, retire: async () => false } as never, reviewer: { review: async () => "APPROVE" }, retryIntervalMs: 1000, isProcessAlive: (pid) => pid === 712 });
+  assert.deepEqual(await regeneratedWhileLocalRuns.poll(), { kind: "watching", taskId: "AO-43", action: "watch" });
+  assert.equal(starts, 0);
+
+  await writeFile(join(info.path, "change.txt"), "local restart completion\n");
+  await execFile("git", ["add", "change.txt"], { cwd: info.path });
+  await execFile("git", ["commit", "-m", "local restart completion"], { cwd: info.path });
+  await execFile("git", ["push", "-u", "origin", info.branch], { cwd: info.path });
+  const restarted = new RuntimeComposition({ target: targetConfig(repo), manifest: runtimeManifest, stateRoot: state, issues, checkpoints, workers: { start: async () => { starts += 1; throw new Error("fallback must not redispatch"); }, resume: async () => { throw new Error("fallback must not resume"); }, retire: async () => false } as never, reviewer: { review: async () => "APPROVE" }, retryIntervalMs: 1000, isProcessAlive: () => false });
+  const result = await restarted.poll();
+  assert.equal(result.kind, "completed");
+  assert.equal(starts, 0);
+  assert.equal(issues.issue.state, "CLOSED");
+  void oldHandle;
 });

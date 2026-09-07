@@ -1,5 +1,5 @@
 import { WorkerConfig, WorkerMode, WorkerProvider, WorkerRole } from "../config/index.js";
-import { ImplementationWorkerAdapter, WorkerProcessHandle, WorkerProcessStarted, WorkerRecoveryEvidence, WorkerRunResult } from "./worker.js";
+import { ImplementationWorkerAdapter, WorkerProcessHandle, WorkerProcessStarted, WorkerProcessTransitionListener, WorkerRecoveryEvidence, WorkerRunResult } from "./worker.js";
 import type { Checkpoint } from "../config/index.js";
 
 export interface ProviderFallbackFact {
@@ -25,6 +25,8 @@ export interface WorkerDispatchHandle {
   readonly started: WorkerProcessStarted;
   readonly routing: WorkerRunRouting;
   readonly completion: Promise<WorkerDispatchResult>;
+  /** Small durable handoff hook used when auto mode changes provider/process. */
+  readonly setTransitionListener?: (listener: WorkerProcessTransitionListener) => void;
 }
 export type LocalPreflightGate = () => Promise<boolean>;
 
@@ -99,9 +101,12 @@ export class WorkerDispatcher {
   async startDetached(prompt: string, worktree: string, role: WorkerRole): Promise<WorkerDispatchHandle> {
     const provider = this.router.providerFor(role);
     const first = await this.startDetachedWithPreflight(provider, prompt, worktree, role);
+    let listener: WorkerProcessTransitionListener | undefined;
+    const setTransitionListener = (next: WorkerProcessTransitionListener): void => { listener = next; };
     return {
       started: first.started,
       routing: this.router.state,
+      setTransitionListener,
       completion: first.completion.then(async (run) => {
         const fallback = run.availabilityReason === undefined
           ? undefined
@@ -111,6 +116,7 @@ export class WorkerDispatcher {
         }
         if (fallback !== undefined) {
           const local = await this.startDetachedWithPreflight("local", prompt, worktree, role);
+          await listener?.(local.started, this.router.state);
           return local.completion.then((localRun) => ({ run: localRun, routing: this.router.state }));
         }
         return { run, routing: this.router.state };

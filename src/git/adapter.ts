@@ -16,6 +16,18 @@ export interface GitSnapshot {
   readonly changedFiles: readonly string[];
 }
 
+export interface WorkerGitObservation {
+  readonly branch: string;
+  readonly currentHead: string;
+  readonly baseHead: string;
+  readonly baseAncestor: boolean;
+  readonly remoteHead: string | null;
+  /** The assigned branch is structurally trustworthy for recovery. */
+  readonly valid: boolean;
+  /** The remote branch points at the exact worktree HEAD. */
+  readonly pushed: boolean;
+}
+
 export interface MergeGateFacts {
   readonly requiredTestsPass: boolean;
   readonly machineValidationPass: boolean;
@@ -104,7 +116,30 @@ export class GitAdapter {
     throw new GitCommandError("merge-base", ["--is-ancestor", ancestor, descendant], result);
   }
   async remoteContains(repo: string, head: string, remoteBranch: string): Promise<boolean> {
+    const remoteHead = await this.remoteBranchHead(repo, remoteBranch);
+    if (remoteHead === null) return false;
+    if (remoteHead === head) return true;
+    await this.must(repo, ["fetch", "origin", remoteBranch]);
     return this.isAncestor(head, `origin/${remoteBranch}`, repo);
+  }
+  async remoteBranchHead(repo: string, remoteBranch: string): Promise<string | null> {
+    const result = await this.run("git", ["ls-remote", "origin", `refs/heads/${remoteBranch}`], { cwd: repo });
+    if (result.code !== 0) throw new GitCommandError("ls-remote", ["origin", `refs/heads/${remoteBranch}`], result);
+    const line = splitLines(result.stdout)[0];
+    if (line === undefined) return null;
+    const [head] = line.split(/\s+/);
+    return head === undefined || head === "" ? null : head;
+  }
+  /** Reconstructs detached-worker completion facts without process/session memory. */
+  async observeWorker(repo: string, worktree: string, baseRef: string, remoteBranch: string): Promise<WorkerGitObservation> {
+    const snapshot = await this.snapshot(worktree, baseRef);
+    const [baseHead, remoteHead] = await Promise.all([
+      this.read(worktree, ["rev-parse", baseRef]),
+      this.remoteBranchHead(repo, remoteBranch),
+    ]);
+    const baseAncestor = snapshot.head !== "" && await this.isAncestor(baseRef, snapshot.head, repo);
+    const valid = snapshot.branch === remoteBranch && snapshot.head !== "" && baseAncestor;
+    return { branch: snapshot.branch, currentHead: snapshot.head, baseHead, baseAncestor, remoteHead, valid, pushed: valid && snapshot.head !== baseHead && remoteHead === snapshot.head };
   }
   async fetch(repo: string, baseBranch: string): Promise<void> { await this.must(repo, ["fetch", "origin", baseBranch]); }
 

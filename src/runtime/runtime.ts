@@ -141,15 +141,21 @@ export class RuntimeComposition {
         return { kind: "paused", taskId: task.id, action: action.kind };
       }
       if (action.kind === "validate") {
-        const result = await this.processWorkerDone({ ...checkpoint, executionState: "worker-done" }, task, issue);
+        const current = await this.requiredCheckpoint(checkpoint.taskId);
+        const result = await this.processWorkerDone({ ...current, executionState: "worker-done" }, task, issue);
         return { kind: result.status === "approved" ? "completed" : "blocked-human", taskId: task.id, controller: result };
       }
       if (action.kind === "resume-luna") {
         await this.resume(checkpoint, task, issue);
         return { kind: "advanced", taskId: task.id, action: action.kind };
       }
+      if (action.kind === "restart-luna") {
+        await this.retryFresh(checkpoint, task, issue);
+        return { kind: "advanced", taskId: task.id, action: action.kind };
+      }
       if (action.kind === "resume-terra") {
-        const result = await this.processWorkerDone({ ...checkpoint, executionState: "worker-done" }, task, issue);
+        const current = await this.requiredCheckpoint(checkpoint.taskId);
+        const result = await this.processWorkerDone({ ...current, executionState: "worker-done" }, task, issue);
         return { kind: result.status === "approved" ? "completed" : "blocked-human", taskId: task.id, controller: result };
       }
       if (action.kind === "cleanup-candidate") return { kind: "completed", taskId: task.id, action: action.kind };
@@ -334,9 +340,23 @@ export class RuntimeComposition {
 
   private async reconcileCheckpoint(checkpoint: Checkpoint, issue: IssueSnapshot, state: ExecutionState): Promise<ReconcileAction> {
     const processAlive = checkpoint.pid !== null && (this.deps.isProcessAlive?.(checkpoint.pid) ?? isProcessAlive(checkpoint.pid));
-    const pushedHead = checkpoint.lastHead !== null && await safeRemoteContains(this.git, this.target.targetRepo, checkpoint.lastHead, checkpoint.branch);
+    let pushedHead = false;
+    let workerHeadValid: boolean | undefined;
+    let safeFreshRecovery: boolean | undefined;
+    if (!processAlive) {
+      const observed = await safeObserveWorker(this.git, this.target.targetRepo, checkpoint.worktree, `origin/${this.target.baseBranch}`, checkpoint.branch);
+      if (observed !== undefined) {
+        workerHeadValid = observed.valid;
+        pushedHead = observed.pushed;
+        safeFreshRecovery = observed.valid && !observed.pushed && (observed.remoteHead === null || observed.remoteHead === observed.baseHead);
+        if (observed.pushed && observed.currentHead !== checkpoint.lastHead) {
+          const current = await this.requiredCheckpoint(checkpoint.taskId);
+          await this.save({ ...current, lastHead: observed.currentHead });
+        }
+      }
+    }
     const sessionExists = checkpoint.sessionId !== null && (await (this.deps.sessionExists?.(checkpoint.sessionId) ?? Promise.resolve(true)));
-    return reconcile({ checkpoint, issueState: state, processAlive, pushedHead, sessionExists, rateLimited: false, now: this.deps.now?.() ?? new Date() }, this.deps.retryIntervalMs);
+    return reconcile({ checkpoint, issueState: state, processAlive, pushedHead, sessionExists, rateLimited: false, now: this.deps.now?.() ?? new Date(), ...(workerHeadValid === undefined ? {} : { workerHeadValid }), ...(safeFreshRecovery === undefined ? {} : { safeFreshRecovery }) }, this.deps.retryIntervalMs);
   }
 
   private async cleanup(taskId: string, role: WorkerRole): Promise<void> {
@@ -434,8 +454,8 @@ async function safeSnapshot(git: GitAdapter, worktree: string, baseRef: string):
   try { return await git.snapshot(worktree, baseRef); } catch { return { branch: "", head: "", clean: false, changedFiles: [] }; }
 }
 
-async function safeRemoteContains(git: GitAdapter, repo: string, head: string, branch: string): Promise<boolean> {
-  try { return await git.remoteContains(repo, head, branch); } catch { return false; }
+async function safeObserveWorker(git: GitAdapter, repo: string, worktree: string, baseRef: string, branch: string): Promise<Awaited<ReturnType<GitAdapter["observeWorker"]>> | undefined> {
+  try { return await git.observeWorker(repo, worktree, baseRef, branch); } catch { return undefined; }
 }
 
 function isProcessAlive(pid: number): boolean {

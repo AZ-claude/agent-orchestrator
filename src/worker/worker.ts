@@ -1,5 +1,6 @@
 import { WorkerProvider, WorkerRole } from "../config/index.js";
 import type { LeaseEvidence } from "../opencode/lease.js";
+import type { WorkerRunRouting } from "./routing.js";
 
 export type AvailabilityLimitReason = "RATE_LIMIT" | "USAGE_LIMIT" | "QUOTA_LIMIT";
 export type WorkerOutcome = "success" | "availability-limit" | "crash" | "failed" | "spawn-error" | "lease-busy";
@@ -51,6 +52,8 @@ export interface WorkerProcessHandle {
   readonly started: WorkerProcessStarted;
   readonly completion: Promise<WorkerRunResult>;
 }
+
+export type WorkerProcessTransitionListener = (started: WorkerProcessStarted, routing: WorkerRunRouting) => Promise<void> | void;
 
 /** The only lifecycle facts the controller needs from an implementation worker. */
 export interface ImplementationWorkerAdapter {

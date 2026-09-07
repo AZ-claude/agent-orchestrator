@@ -1,7 +1,7 @@
 import { Checkpoint, ExecutionState, SessionLifecycle, WorkerRole } from "../config/index.js";
 
-export interface ReconcileObservation { readonly checkpoint: Checkpoint; readonly issueState: ExecutionState | "closed"; readonly processAlive: boolean; readonly pushedHead: boolean; readonly sessionExists: boolean; readonly rateLimited: boolean; readonly now: Date; }
-export type ReconcileAction = { readonly kind: "watch" | "validate" | "resume-luna" | "resume-terra" | "pause" | "wait-local-lease" | "cleanup-candidate" | "blocked-human" | "skip-completed"; readonly retryAt?: string; readonly reason?: string };
+export interface ReconcileObservation { readonly checkpoint: Checkpoint; readonly issueState: ExecutionState | "closed"; readonly processAlive: boolean; readonly pushedHead: boolean; readonly sessionExists: boolean; readonly rateLimited: boolean; readonly now: Date; readonly workerHeadValid?: boolean; readonly safeFreshRecovery?: boolean; }
+export type ReconcileAction = { readonly kind: "watch" | "validate" | "resume-luna" | "restart-luna" | "resume-terra" | "pause" | "wait-local-lease" | "cleanup-candidate" | "blocked-human" | "skip-completed"; readonly retryAt?: string; readonly reason?: string };
 
 export interface SessionRecord { readonly sessionId: string; readonly taskId: string; readonly role: WorkerRole; readonly lifecycle: SessionLifecycle; }
 
@@ -44,6 +44,7 @@ export function reconcile(observation: ReconcileObservation, retryIntervalMs: nu
   if (cp.processOutcome === "lease-busy") return { kind: "wait-local-lease", retryAt: new Date(observation.now.getTime() + retryIntervalMs).toISOString(), reason: "shared local inference lease is busy or unavailable" };
   if (observation.issueState === "running" && observation.processAlive) return { kind: "watch" };
   if (observation.issueState === "running" && !observation.processAlive && observation.pushedHead) return { kind: "validate" };
+  if (observation.issueState === "running" && !observation.processAlive && observation.safeFreshRecovery === true && (cp.sessionId === null || !observation.sessionExists)) return { kind: "restart-luna", reason: "worker exited before publishing its assigned branch" };
   if (observation.issueState === "running" && !observation.processAlive && cp.sessionId !== null && observation.sessionExists) return { kind: "resume-luna" };
   if (observation.issueState === "reviewing" && !observation.processAlive && cp.sessionId !== null && observation.sessionExists) return { kind: "resume-terra" };
   if (observation.issueState === "closed") return { kind: "cleanup-candidate" };

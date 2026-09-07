@@ -11,6 +11,7 @@ test("reconciles crash, rate-limit, and already-completed cases deterministicall
   assert.equal(reconcile({ ...base, issueState: "running", checkpoint: { ...checkpoint, processOutcome: "lease-busy" } }, 60_000).kind, "wait-local-lease");
   assert.equal(reconcile({ ...base, issueState: "closed", pushedHead: true }, 60_000).kind, "skip-completed");
   assert.equal(reconcile({ ...base, issueState: "running", pushedHead: true }, 60_000).kind, "validate");
+  assert.equal(reconcile({ ...base, issueState: "running", checkpoint: { ...checkpoint, sessionId: null }, safeFreshRecovery: true }, 60_000).kind, "restart-luna");
 });
 
 test("stale lease reconciliation delegates only the owner-scoped release operation", async () => {
