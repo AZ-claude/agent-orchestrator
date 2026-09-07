@@ -84,7 +84,7 @@ tasks:
     humanGate: false
     allowedPaths: [src/config/**, src/cli/**, src/runtime/**, src/worker/**, src/opencode/**, docs/runbooks/**, test/config.test.ts, test/worker.test.ts, test/opencode.test.ts, test/entrypoint.test.ts]
     nonScope: [ollama-model-management, kiji-operation, launchagent-lifecycle, generic-provider-framework]
-    completion: Existing LunaRunner, CloudWorkerAdapter, OpenCodeWorkerAdapter, WorkerRunRouter, WorkerDispatcher, and DurableWorkerRuntime are assembled from runtime config. Cloud/local/auto retain the existing policy; local enforces ollama/qwen3.8:latest, context 262144, OpenCode preflight, and the shared lease without reimplementing AO-41/AO-42 mechanisms.
+    completion: Existing LunaRunner, CloudWorkerAdapter, OpenCodeWorkerAdapter, WorkerRunRouter, WorkerDispatcher, and DurableWorkerRuntime are assembled from runtime config. Cloud/local/auto retain the existing policy; local enforces ollama/qwen3.8:latest, context 262144, OpenCode preflight, and the shared lease without reimplementing AO-41/AO-42 mechanisms. Worker process handles are detached from the poll loop, and checkpoint provider/fallback facts are authoritative across router recreation.
     test: npm test -- config worker opencode entrypoint runtime && npm run build && npm run lint
   - id: AO-51
     title: Build concrete executable runtime composition
@@ -94,7 +94,7 @@ tasks:
     humanGate: false
     allowedPaths: [src/runtime/**, src/scheduler/**, src/controller/**, src/checkpoint/**, src/cli/**, src/config/**, test/runtime.test.ts, test/scheduler.test.ts, test/controller.test.ts, test/entrypoint.test.ts]
     nonScope: [issue-label-derived-human-authority, launchagent-lifecycle, runtime-composition-rewrite]
-    completion: The executable entrypoint builds CheckpointStore, target-aware Issue boundary, GitAdapter, concrete Worker runtime, concrete Independent Reviewer, MachineValidator, RuntimeComposition, and process/session observers without runtimeFactory injection. It also passes maxLunaWorkers and durable explicit Human Gate evidence into scheduler and merge gates; no empty approval set or unconditional unresolvedHumanGate false path remains.
+    completion: The executable entrypoint builds CheckpointStore, target-aware Issue boundary, GitAdapter, concrete Worker runtime, concrete Independent Reviewer, MachineValidator, RuntimeComposition, and process/session observers without runtimeFactory injection. It also passes maxLunaWorkers and durable explicit Human Gate evidence into scheduler and merge gates; detached Worker process ownership is checkpointed before polling resumes; no empty approval set or unconditional unresolvedHumanGate false path remains.
     test: npm test -- runtime scheduler controller checkpoint entrypoint config && npm run build && npm run lint
   - id: AO-52
     title: Prove a disposable GitHub real E2E
@@ -104,7 +104,7 @@ tasks:
     humanGate: false
     allowedPaths: [test/**, scripts/**, docs/agent-runs/**, docs/runbooks/**, tasks/agent-orchestrator-runtime-composition.yaml]
     nonScope: [slot-or-kiji-operation, production-resource-operation, launchagent-install-load-register, more-than-one-minimal-task]
-    completion: One dedicated disposable GitHub repository proves real Issue READY through executable CLI dispatch, real worker branch/worktree/commit/push, validation, independent review and reviewed-HEAD persistence, deterministic merge/main push, Issue close, cleanup, and a second run-once that does not re-execute the completed task.
+    completion: One dedicated disposable GitHub repository proves real Issue READY through executable CLI dispatch, real worker branch/worktree/commit/push, validation, current independent review and reviewed-HEAD persistence, deterministic merge/main push, Issue close, cleanup, and a second run-once that does not re-execute the completed task. Final evidence names the exact source HEAD used for the run and uses a fresh Issue/task, not the historical Issue #1.
     test: npm test && npm run build && npm run lint && packaging/launchd/manage.sh verify && concrete-entrypoint-disposable-run-once && disposable-github-real-e2e
   - id: AO-53
     title: Verify restart and recovery at real boundaries
