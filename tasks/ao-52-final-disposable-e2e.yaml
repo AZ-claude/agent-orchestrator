@@ -16,12 +16,12 @@ workerCompletionContract:
   completion: reviewer-approve-required-before-merge
   fallback: only-if-subagent-capability-unavailable
 tasks:
-  - id: AO-52-FINAL-E2E-20260907-V3
-    title: Create e2e-final-20260907-v3.txt containing the exact text disposable-final-pass
+  - id: AO-52-FINAL-E2E-20260907-V5
+    title: Create e2e-final-20260907-v5.txt containing the exact text disposable-final-pass
     state: READY
     dependsOn: []
     parallel: EXCLUSIVE
     humanGate: false
-    allowedPaths: [e2e-final-20260907-v3.txt]
-    completion: Worker creates e2e-final-20260907-v3.txt with the exact disposable final acceptance marker.
-    test: sh -c 'test "$(cat e2e-final-20260907-v3.txt)" = disposable-final-pass'
+    allowedPaths: [e2e-final-20260907-v5.txt]
+    completion: Worker creates e2e-final-20260907-v5.txt with the exact disposable final acceptance marker.
+    test: sh -c 'test "$(cat e2e-final-20260907-v5.txt)" = disposable-final-pass'

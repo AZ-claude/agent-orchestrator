@@ -176,9 +176,25 @@ export class GitAdapter {
     if (current !== request.facts.currentHead || current !== request.facts.reviewedHead) {
       return { ...gates, pass: false, failedGates: ["reviewed-head-equality"], currentHead: current };
     }
+    let sourceRemoteHead: string | null;
+    try {
+      sourceRemoteHead = await this.remoteBranchHead(request.repo, request.sourceBranch);
+    } catch {
+      return { ...gates, pass: false, failedGates: ["source-remote-head-verification"], currentHead: current };
+    }
+    if (sourceRemoteHead !== request.facts.reviewedHead) {
+      return { ...gates, pass: false, failedGates: ["source-remote-head-equality"], currentHead: current };
+    }
     await this.must(request.repo, ["checkout", request.baseBranch]);
     await this.must(request.repo, ["merge", "--no-edit", request.sourceBranch]);
     await this.must(request.repo, ["push", "origin", request.baseBranch]);
+    let remoteBaseContainsReviewed: boolean;
+    try {
+      remoteBaseContainsReviewed = await this.remoteContains(request.repo, request.facts.reviewedHead, request.baseBranch);
+    } catch {
+      remoteBaseContainsReviewed = false;
+    }
+    if (!remoteBaseContainsReviewed) return { ...gates, pass: false, failedGates: ["remote-base-head-verification"], currentHead: current };
     return gates;
   }
 

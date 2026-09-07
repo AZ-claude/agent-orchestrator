@@ -79,3 +79,26 @@ test("performs the all-pass merge path only after rechecking the reviewed source
     assert.equal(result.pass, true); assert.equal((await execFile("git", ["branch", "--show-current"], { cwd: root })).stdout.trim(), "main");
   } finally { await rm(root, { recursive: true, force: true }); await rm(remote, { recursive: true, force: true }); }
 });
+
+test("fails the merge gate when a successful push command does not update the remote base", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ao-merge-verify-"));
+  const remote = await mkdtemp(join(tmpdir(), "ao-merge-verify-remote-"));
+  try {
+    await execFile("git", ["init", "-b", "main"], { cwd: root });
+    await execFile("git", ["config", "user.email", "ao@example.test"], { cwd: root });
+    await execFile("git", ["config", "user.name", "Agent Orchestrator"], { cwd: root });
+    await writeFile(join(root, "README.md"), "base\n"); await execFile("git", ["add", "README.md"], { cwd: root }); await execFile("git", ["commit", "-m", "base"], { cwd: root });
+    await execFile("git", ["init", "--bare", remote]); await execFile("git", ["remote", "add", "origin", remote], { cwd: root }); await execFile("git", ["push", "-u", "origin", "main"], { cwd: root });
+    await execFile("git", ["checkout", "-b", "agent/AO-VERIFY"], { cwd: root }); await writeFile(join(root, "merge.txt"), "merged\n"); await execFile("git", ["add", "merge.txt"], { cwd: root }); await execFile("git", ["commit", "-m", "change"], { cwd: root });
+    const sourceHead = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim(); await execFile("git", ["push", "-u", "origin", "agent/AO-VERIFY"], { cwd: root });
+    const adapter = new GitAdapter(async (command, args, options) => {
+      if (command === "git" && args[0] === "push" && args[2] === "main") return { stdout: "", stderr: "", code: 0 };
+      const result = await execFile(command, [...args], { cwd: options?.cwd });
+      return { stdout: result.stdout, stderr: result.stderr, code: 0 };
+    });
+    const result = await adapter.mergeReviewedBranch({ repo: root, baseBranch: "main", sourceBranch: "agent/AO-VERIFY", sourceWorktree: root, facts: { requiredTestsPass: true, machineValidationPass: true, scopePass: true, unexpectedDiffPass: true, cleanWorktree: true, pushedBranch: true, dependencyBasePass: true, reviewedHead: sourceHead, currentHead: sourceHead, unresolvedHumanGate: false, activeMergeBarrier: false } });
+    assert.equal(result.pass, false);
+    assert.deepEqual(result.failedGates, ["remote-base-head-verification"]);
+    assert.equal((await execFile("git", ["ls-remote", "origin", "refs/heads/main"], { cwd: root })).stdout.includes(sourceHead), false);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(remote, { recursive: true, force: true }); }
+});
