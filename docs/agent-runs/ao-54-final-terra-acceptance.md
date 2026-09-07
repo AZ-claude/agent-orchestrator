@@ -4,7 +4,7 @@ Date: 2026-09-07 JST
 Status: **PASS for the reworked source branch**
 
 Final source branch: `codex/ao-48-54-runtime-executable`
-Final remote source SHA: `2fdeb006e5f64afaac2d7745ac54ef5fd4397321`
+Source HEAD used for the successful fresh E2E: `2fdeb006e5f64afaac2d7745ac54ef5fd4397321`
 
 ## Checkpoint commits
 
