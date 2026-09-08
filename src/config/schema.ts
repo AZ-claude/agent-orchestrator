@@ -61,6 +61,11 @@ export type PlanTaskState = (typeof PLAN_TASK_STATES)[number];
 
 /** v1 is intentionally limited to the first pilot repository. */
 export const PILOT_TARGET_REPO = "/Users/eita/projects/slot";
+/** The sole v1 production boundary. This is deliberately not configurable. */
+export const PRODUCTION_TARGET_ROOT = "/Users/eita/.local/share/agent-orchestrator/targets";
+export const PRODUCTION_TARGET_REPO = `${PRODUCTION_TARGET_ROOT}/slot`;
+export const PRODUCTION_GITHUB_REPO = "AZ-claude/slot";
+export const PRODUCTION_BASE_BRANCH = "master";
 const FORBIDDEN_DISPOSABLE_GITHUB_REPOS = new Set(["AZ-claude/slot", "AZ-claude/kiji"]);
 
 export interface PilotConfig {
@@ -94,11 +99,11 @@ export interface DisposableTargetConfig {
 }
 
 export interface ProductionTargetConfig {
-  /** Production execution is deliberately disabled until a future gate exists. */
-  readonly enabled: false;
+  /** Execution requires this explicit operator-controlled opt-in. */
+  readonly enabled: boolean;
   readonly targetRepo: string;
   readonly baseBranch: string;
-  readonly githubRepo?: string;
+  readonly githubRepo: typeof PRODUCTION_GITHUB_REPO;
 }
 
 export interface RuntimeTargetConfig {
@@ -106,6 +111,8 @@ export interface RuntimeTargetConfig {
   readonly disposable: DisposableTargetConfig;
   readonly production: ProductionTargetConfig;
 }
+
+export type ExecutableRuntimeTargetConfig = DisposableTargetConfig | ProductionTargetConfig;
 
 export interface LocalWorkerConfig {
   readonly executable: string;
@@ -291,10 +298,27 @@ export function parseRuntimeTargetConfig(value: unknown): RuntimeTargetConfig {
   return parseWith("runtime target config", value, validateRuntimeTargetConfig);
 }
 
-/** Runtime execution has one safe mode today; production is intentionally gated. */
+/** Retained for the disposable-only call sites and compatibility tests. */
 export function assertDisposableRuntimeTarget(config: RuntimeTargetConfig): DisposableTargetConfig {
   if (config.target !== "disposable") throw new SchemaValidationError("runtime target config", [{ path: "$.target", message: "production execution is not enabled" }]);
   return config.disposable;
+}
+
+/** Production is a single named target, and is never enabled implicitly. */
+export function assertProductionRuntimeTarget(config: RuntimeTargetConfig): ProductionTargetConfig {
+  if (config.target !== "production") throw new SchemaValidationError("runtime target config", [{ path: "$.target", message: "production target is required" }]);
+  if (!config.production.enabled) throw new SchemaValidationError("runtime target config", [{ path: "$.production.enabled", message: "production execution requires explicit enabled: true" }]);
+  return config.production;
+}
+
+/** Select the only target that may execute. Disabled production config can still be preflighted. */
+export function assertExecutableRuntimeTarget(config: RuntimeTargetConfig): ExecutableRuntimeTargetConfig {
+  return config.target === "disposable" ? assertDisposableRuntimeTarget(config) : assertProductionRuntimeTarget(config);
+}
+
+/** Select a declared target without granting execution authority. */
+export function declaredRuntimeTarget(config: RuntimeTargetConfig): ExecutableRuntimeTargetConfig {
+  return config.target === "disposable" ? config.disposable : config.production;
 }
 
 export function parseManifest(value: unknown): TaskManifest {
@@ -410,8 +434,8 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
   const humanGateApprovals = value.humanGateApprovals === undefined ? null : requiredStringArray(value, "humanGateApprovals", path, issues);
   const runtime = value.runtime === undefined ? null : validateRuntimeTargetConfig(value.runtime, `${path}.runtime`, issues);
   const worker = value.worker === undefined ? null : validateWorkerConfig(value.worker, `${path}.worker`, issues);
-  if (runtime !== null && runtime !== undefined && stateRoot !== undefined && isWithinPath(stateRoot, runtime.disposable.targetRepo)) {
-    issues.push(issue(`${path}.stateRoot`, "must be outside the disposable target repository"));
+  if (runtime !== null && runtime !== undefined && stateRoot !== undefined && (isWithinPath(stateRoot, runtime.disposable.targetRepo) || isWithinPath(stateRoot, runtime.production.targetRepo))) {
+    issues.push(issue(`${path}.stateRoot`, "must be outside every declared runtime target repository"));
   }
 
   if (pilot) {
@@ -477,11 +501,13 @@ function validateDisposableTargetConfig(value: Record<string, unknown>, path: st
 
 function validateProductionTargetConfig(value: Record<string, unknown>, path: string, issues: ValidationIssue[]): ProductionTargetConfig | undefined {
   rejectUnknown(value, ["enabled", "targetRepo", "baseBranch", "githubRepo"], path, issues);
-  const enabled = requiredLiteral(value, "enabled", false, path, issues);
+  const enabled = requiredBoolean(value, "enabled", path, issues);
   const targetRepo = requiredAbsolutePath(value, "targetRepo", path, issues);
   const baseBranch = requiredString(value, "baseBranch", path, issues);
-  const githubRepo = optionalString(value, "githubRepo", path, issues);
-  if (enabled !== undefined && targetRepo !== undefined && baseBranch !== undefined && !issuesForPath(issues, path)) return { enabled, targetRepo, baseBranch, ...(githubRepo === undefined || githubRepo === null ? {} : { githubRepo }) };
+  const githubRepo = requiredLiteral(value, "githubRepo", PRODUCTION_GITHUB_REPO, path, issues);
+  if (targetRepo !== undefined && resolve(targetRepo) !== PRODUCTION_TARGET_REPO) issues.push(issue(`${path}.targetRepo`, `must equal the orchestrator-owned production clone ${PRODUCTION_TARGET_REPO}`));
+  if (baseBranch !== undefined && baseBranch !== PRODUCTION_BASE_BRANCH) issues.push(issue(`${path}.baseBranch`, `must equal ${PRODUCTION_BASE_BRANCH}`));
+  if (enabled !== undefined && targetRepo !== undefined && baseBranch !== undefined && githubRepo !== undefined && !issuesForPath(issues, path)) return { enabled, targetRepo, baseBranch, githubRepo };
   return undefined;
 }
 

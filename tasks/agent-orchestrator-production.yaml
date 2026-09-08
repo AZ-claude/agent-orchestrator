@@ -1,0 +1,20 @@
+version: 2
+planningAuthority: Terra
+handoff:
+  id: agent-orchestrator-production
+  source: docs/runbooks/agent-orchestrator-production.md
+  board: docs/runbooks/agent-orchestrator-production.md
+  targetRepo: /Users/eita/.local/share/agent-orchestrator/targets/slot
+  baseBranch: master
+  implementationPromptTemplate: Implement only the canonical task scope, validate it, and leave durable evidence.
+workerCompletionContract:
+  independentReview: required
+  reviewer: same-session-read-only-luna-subagent
+  reviewerContext: task-scope-source-head-review-packet-only
+  reviewerHistory: none
+  onRework: same-implementation-session-fix-validate-rereview
+  completion: reviewer-approve-required-before-merge
+  fallback: only-if-subagent-capability-unavailable
+# Task projection is deliberately empty until the LaunchAgent Human Gate has
+# explicitly authorized the first real /slot task.
+tasks: []

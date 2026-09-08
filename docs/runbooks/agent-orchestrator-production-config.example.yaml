@@ -1,0 +1,36 @@
+version: 1
+pilot:
+  # Legacy identity remains required by the v1 schema; it is not a runtime checkout.
+  targetRepo: /Users/eita/projects/slot
+  baseBranch: main
+  manifestPath: tasks/agent-orchestrator-production.yaml
+  boardPath: docs/runbooks/agent-orchestrator-production.md
+stateRoot: /Users/eita/.local/state/agent-orchestrator
+pollIntervalMs: 30000
+maxLunaWorkers: 2
+maxResumeAttempts: 2
+retryIntervalMs: 300000
+worker:
+  mode: auto
+  primary: cloud
+  recovery: cloud
+  local:
+    executable: /ABSOLUTE/PATH/TO/opencode
+    model: ollama/qwen3.8:latest
+    contextTokens: 262144
+    workdir: /Users/eita/.local/share/agent-orchestrator/targets/slot
+    ollamaBaseUrl: http://127.0.0.1:11434
+    configPath: /ABSOLUTE/PATH/TO/opencode.jsonc
+    leasePath: /Users/eita/.local/state/ollama-inference/lease
+runtime:
+  target: production
+  disposable:
+    targetRepo: /tmp/agent-orchestrator-disposable-target
+    baseBranch: main
+    githubRepo: YOUR_ORG/agent-orchestrator-disposable
+    allowedRoots: [/tmp]
+  production:
+    enabled: false
+    targetRepo: /Users/eita/.local/share/agent-orchestrator/targets/slot
+    baseBranch: master
+    githubRepo: AZ-claude/slot

@@ -33,7 +33,7 @@ esac
 # versioned delta manifest without calling gh, git, launchctl, or an LLM.
 status=$("$NODE_BIN" "$CLI_PATH" status)
 case "$status" in
-  *"agent-orchestrator-preinstall-delta"*"version"*|*"agent-orchestrator-qwen-opencode-worker-preinstall-delta"*"version"*) ;;
+  *"agent-orchestrator-preinstall-delta"*"version"*|*"agent-orchestrator-qwen-opencode-worker-preinstall-delta"*"version"*|*"agent-orchestrator-production"*"version"*) ;;
   *) echo "entrypoint status did not validate the canonical delta" >&2; exit 1;;
 esac
 echo "preflight: PASS (read-only)"

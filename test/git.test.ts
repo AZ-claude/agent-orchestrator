@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { execFile as nodeExecFile } from "node:child_process";
 import { promisify } from "node:util";
 import { GitAdapter, matchesGlob } from "../src/git/index.js";
+import { PRODUCTION_TARGET_REPO } from "../src/config/index.js";
 const execFile = promisify(nodeExecFile);
 
 test("scope glob matching is repository relative and supports star forms", () => {
@@ -101,4 +102,78 @@ test("fails the merge gate when a successful push command does not update the re
     assert.deepEqual(result.failedGates, ["remote-base-head-verification"]);
     assert.equal((await execFile("git", ["ls-remote", "origin", "refs/heads/main"], { cwd: root })).stdout.includes(sourceHead), false);
   } finally { await rm(root, { recursive: true, force: true }); await rm(remote, { recursive: true, force: true }); }
+});
+
+test("AO-56 production inspection permits only a clean, synced owned slot/master clone", async () => {
+  const calls: string[] = [];
+  const head = "a".repeat(40);
+  const runner = async (command: string, args: readonly string[], options?: { readonly cwd?: string }) => {
+    calls.push(`${options?.cwd ?? ""}: ${command} ${args.join(" ")}`);
+    if (options?.cwd === "/Users/eita/projects/slot") throw new Error("legacy development checkout must never be touched");
+    const key = args.join(" ");
+    if (key === "rev-parse --is-inside-work-tree") return { stdout: "true\n", stderr: "", code: 0 };
+    if (key === "remote get-url origin") return { stdout: "https://github.com/AZ-claude/slot.git\n", stderr: "", code: 0 };
+    if (key === "branch --show-current") return { stdout: "master\n", stderr: "", code: 0 };
+    if (key === "status --porcelain") return { stdout: "", stderr: "", code: 0 };
+    if (key === "worktree list --porcelain") return { stdout: `worktree ${PRODUCTION_TARGET_REPO}\nHEAD ${head}\nbranch refs/heads/master\n\n`, stderr: "", code: 0 };
+    if (key === "rev-parse refs/remotes/origin/master" || key === "rev-parse HEAD") return { stdout: `${head}\n`, stderr: "", code: 0 };
+    if (key === "ls-remote origin refs/heads/master") return { stdout: `${head}\trefs/heads/master\n`, stderr: "", code: 0 };
+    return { stdout: "", stderr: `unexpected ${key}`, code: 1 };
+  };
+  const target = { enabled: true as const, targetRepo: PRODUCTION_TARGET_REPO, baseBranch: "master", githubRepo: "AZ-claude/slot" as const };
+  const facts = await new GitAdapter(runner).inspectProductionTarget(target, "/Users/eita/.local/state/agent-orchestrator");
+  assert.equal(facts.remoteMaster, head);
+  assert.equal(calls.some((call) => call.includes("/Users/eita/projects/slot")), false);
+});
+
+test("AO-56 production inspection fails closed for dirty, mismatched origin, and stale tracking facts", async () => {
+  const head = "b".repeat(40);
+  const target = { enabled: true as const, targetRepo: PRODUCTION_TARGET_REPO, baseBranch: "master", githubRepo: "AZ-claude/slot" as const };
+  const fixture = (overrides: Partial<Record<string, string>>) => new GitAdapter(async (_command, args) => {
+    const key = args.join(" ");
+    const values: Record<string, string> = {
+      "rev-parse --is-inside-work-tree": "true\n",
+      "remote get-url origin": "https://github.com/AZ-claude/slot.git\n",
+      "branch --show-current": "master\n",
+      "status --porcelain": "",
+      "worktree list --porcelain": `worktree ${PRODUCTION_TARGET_REPO}\nHEAD ${head}\nbranch refs/heads/master\n\n`,
+      "rev-parse refs/remotes/origin/master": `${head}\n`,
+      "rev-parse HEAD": `${head}\n`,
+      "ls-remote origin refs/heads/master": `${head}\trefs/heads/master\n`,
+      ...overrides,
+    };
+    const stdout = values[key];
+    return stdout === undefined ? { stdout: "", stderr: "unexpected", code: 1 } : { stdout, stderr: "", code: 0 };
+  });
+  await assert.rejects(() => fixture({ "status --porcelain": " M changed\n" }).inspectProductionTarget(target, "/tmp/state"), /dirty/);
+  await assert.rejects(() => fixture({ "remote get-url origin": "https://github.com/AZ-claude/kiji.git\n" }).inspectProductionTarget(target, "/tmp/state"), /origin/);
+  await assert.rejects(() => fixture({ "ls-remote origin refs/heads/master": `${"c".repeat(40)}\trefs/heads/master\n` }).inspectProductionTarget(target, "/tmp/state"), /does not match remote master/);
+});
+
+test("AO-56 dispatch synchronization fetches before accepting origin/master and rejects fetch failure", async () => {
+  const oldHead = "d".repeat(40);
+  const newHead = "e".repeat(40);
+  let fetched = false;
+  const target = { enabled: true as const, targetRepo: PRODUCTION_TARGET_REPO, baseBranch: "master", githubRepo: "AZ-claude/slot" as const };
+  const runner = async (_command: string, args: readonly string[]) => {
+    const key = args.join(" ");
+    if (key === "fetch origin master") { fetched = true; return { stdout: "", stderr: "", code: 0 }; }
+    const head = fetched ? newHead : oldHead;
+    const values: Record<string, string> = {
+      "rev-parse --is-inside-work-tree": "true\n",
+      "remote get-url origin": "https://github.com/AZ-claude/slot.git\n",
+      "branch --show-current": "master\n",
+      "status --porcelain": "",
+      "worktree list --porcelain": `worktree ${PRODUCTION_TARGET_REPO}\nHEAD ${head}\nbranch refs/heads/master\n\n`,
+      "rev-parse refs/remotes/origin/master": `${head}\n`,
+      "rev-parse HEAD": `${head}\n`,
+      "ls-remote origin refs/heads/master": `${head}\trefs/heads/master\n`,
+    };
+    const stdout = values[key];
+    return stdout === undefined ? { stdout: "", stderr: "unexpected", code: 1 } : { stdout, stderr: "", code: 0 };
+  };
+  const facts = await new GitAdapter(runner).synchronizeProductionTarget(target, "/tmp/state");
+  assert.equal(fetched, true);
+  assert.equal(facts.head, newHead);
+  await assert.rejects(() => new GitAdapter(async (_command, args) => args[0] === "fetch" ? { stdout: "", stderr: "network unavailable", code: 1 } : runner(_command, args)).synchronizeProductionTarget(target, "/tmp/state"), /fetch/);
 });

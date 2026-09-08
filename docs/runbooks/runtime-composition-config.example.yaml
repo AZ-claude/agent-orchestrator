@@ -40,6 +40,6 @@ runtime:
       - /tmp
   production:
     enabled: false
-    targetRepo: /Users/eita/projects/slot
-    baseBranch: main
+    targetRepo: /Users/eita/.local/share/agent-orchestrator/targets/slot
+    baseBranch: master
     githubRepo: AZ-claude/slot

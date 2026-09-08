@@ -1,4 +1,5 @@
 import { access, readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { execFile as nodeExecFile } from "node:child_process";
 import { promisify } from "node:util";
 import { AO_LOCAL_MODEL, LocalWorkerConfig, REQUIRED_LOCAL_CONTEXT } from "../config/index.js";
@@ -33,6 +34,7 @@ export async function preflightLocalWorker(config: LocalWorkerConfig, probe: Loc
   checks.push(pathCheck("opencode-executable", config.executable, await exists(config.executable)));
   checks.push(pathCheck("workdir", config.workdir, await exists(config.workdir)));
   checks.push(pathCheck("opencode-config", config.configPath, await exists(config.configPath)));
+  checks.push(pathCheck("shared-lease-parent", dirname(config.leasePath), await exists(dirname(config.leasePath))));
 
   const version = await runVersion(config.executable, config.workdir);
   checks.push({ name: "opencode-available", pass: version.pass, detail: version.detail });

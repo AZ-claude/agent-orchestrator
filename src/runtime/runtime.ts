@@ -1,11 +1,12 @@
 import { CheckpointStore } from "../checkpoint/index.js";
 import { relative, resolve } from "node:path";
 import {
-  assertDisposableRuntimeTarget,
+  assertExecutableRuntimeTarget,
   Checkpoint,
-  DisposableTargetConfig,
+  ExecutableRuntimeTargetConfig,
   ExecutionState,
   ManifestTask,
+  ProductionTargetConfig,
   RuntimeTargetConfig,
   TaskManifest,
   WorkerOutcome,
@@ -72,19 +73,19 @@ export class RuntimeOwnershipError extends Error {
 }
 
 /**
- * Composition root for one safe disposable runtime poll.
+ * Composition root for one explicitly selected runtime poll.
  * Every decision is rebuilt from checkpoints, Issue projections, and Git facts;
  * instance fields contain no task lifecycle state.
  */
 export class RuntimeComposition {
-  private readonly target: DisposableTargetConfig;
+  private readonly target: ExecutableRuntimeTargetConfig;
   private readonly checkpoints: CheckpointStore;
   private readonly git: GitAdapter;
   private readonly validator: MachineValidator;
 
   constructor(private readonly deps: RuntimeCompositionDependencies) {
-    this.target = assertDisposableRuntimeTarget(deps.target);
-    if (deps.manifest.handoff.targetRepo !== this.target.targetRepo) throw new Error("manifest target does not match disposable runtime target");
+    this.target = assertExecutableRuntimeTarget(deps.target);
+    if (deps.manifest.handoff.targetRepo !== this.target.targetRepo) throw new Error("manifest target does not match runtime target");
     if (isWithinPath(deps.stateRoot, this.target.targetRepo)) throw new RuntimeOwnershipError("runtime state must be outside the disposable target");
     this.checkpoints = deps.checkpoints ?? new CheckpointStore(deps.stateRoot);
     this.git = deps.git ?? new GitAdapter();
@@ -92,6 +93,7 @@ export class RuntimeComposition {
   }
 
   async poll(): Promise<RuntimePollResult> {
+    if (this.deps.target.target === "production") await this.git.ensureProductionClone(this.target as ProductionTargetConfig, this.deps.stateRoot);
     await this.deps.issues.verifyTarget?.();
     const issues = await this.deps.issues.readOpen();
     const checkpoints = await this.checkpoints.list();

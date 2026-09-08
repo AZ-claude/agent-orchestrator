@@ -1,7 +1,8 @@
 import { execFile as nodeExecFile } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { promisify } from "node:util";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
+import { PRODUCTION_BASE_BRANCH, PRODUCTION_GITHUB_REPO, PRODUCTION_TARGET_REPO, PRODUCTION_TARGET_ROOT, ProductionTargetConfig } from "../config/index.js";
 
 const execFile = promisify(nodeExecFile);
 
@@ -26,6 +27,15 @@ export interface WorkerGitObservation {
   readonly valid: boolean;
   /** The remote branch points at the exact worktree HEAD. */
   readonly pushed: boolean;
+}
+
+export interface ProductionTargetFacts {
+  readonly targetRepo: string;
+  readonly origin: string;
+  readonly branch: string;
+  readonly head: string;
+  readonly originMaster: string;
+  readonly remoteMaster: string;
 }
 
 export interface MergeGateFacts {
@@ -143,6 +153,44 @@ export class GitAdapter {
   }
   async fetch(repo: string, baseBranch: string): Promise<void> { await this.must(repo, ["fetch", "origin", baseBranch]); }
 
+  /**
+   * Creates only the single, orchestrator-owned v1 production clone. Existing
+   * clones are never reset, checked out, or otherwise repaired automatically.
+   */
+  async ensureProductionClone(target: ProductionTargetConfig, stateRoot: string): Promise<ProductionTargetFacts> {
+    assertProductionTargetDeclaration(target);
+    if (!(await exists(target.targetRepo))) {
+      await mkdir(PRODUCTION_TARGET_ROOT, { recursive: true });
+      const cloned = await this.run("git", ["clone", "--branch", PRODUCTION_BASE_BRANCH, "--single-branch", productionOriginUrl(), target.targetRepo]);
+      if (cloned.code !== 0) throw new GitCommandError("clone", ["--branch", PRODUCTION_BASE_BRANCH, "--single-branch", productionOriginUrl(), target.targetRepo], cloned);
+    }
+    return this.synchronizeProductionTarget(target, stateRoot);
+  }
+
+  /** Dispatch boundary: fetch first, then prove the clone is still exact and safe. */
+  async synchronizeProductionTarget(target: ProductionTargetConfig, stateRoot: string): Promise<ProductionTargetFacts> {
+    assertProductionTargetDeclaration(target);
+    await this.assertProductionCloneStatic(target, stateRoot);
+    await this.must(target.targetRepo, ["fetch", "origin", PRODUCTION_BASE_BRANCH]);
+    return this.inspectProductionTarget(target, stateRoot);
+  }
+
+  /** Read-only production boundary inspection; it never fetches, checks out, or writes. */
+  async inspectProductionTarget(target: ProductionTargetConfig, stateRoot: string): Promise<ProductionTargetFacts> {
+    assertProductionTargetDeclaration(target);
+    await this.assertProductionCloneStatic(target, stateRoot);
+    const [originMaster, remoteMaster] = await Promise.all([
+      this.read(target.targetRepo, ["rev-parse", `refs/remotes/origin/${PRODUCTION_BASE_BRANCH}`]),
+      this.remoteBranchHead(target.targetRepo, PRODUCTION_BASE_BRANCH),
+    ]);
+    if (remoteMaster === null) throw new Error("production remote master is unavailable");
+    if (originMaster !== remoteMaster) throw new Error("production origin/master does not match remote master; refusing stale target");
+    const head = await this.head(target.targetRepo);
+    if (head !== originMaster) throw new Error("production base checkout is not at origin/master; refusing automatic reset");
+    const origin = await this.read(target.targetRepo, ["remote", "get-url", "origin"]);
+    return { targetRepo: target.targetRepo, origin, branch: PRODUCTION_BASE_BRANCH, head, originMaster, remoteMaster };
+  }
+
   async removeWorktree(repo: string, worktree: string): Promise<void> {
     await this.must(repo, ["worktree", "remove", "--force", worktree]);
   }
@@ -213,6 +261,21 @@ export class GitAdapter {
     const result = await this.run("git", args, { cwd });
     if (result.code !== 0) throw new GitCommandError(args[0] ?? "git", args.slice(1), result);
   }
+
+  private async assertProductionCloneStatic(target: ProductionTargetConfig, stateRoot: string): Promise<void> {
+    const inside = await this.run("git", ["rev-parse", "--is-inside-work-tree"], { cwd: target.targetRepo });
+    if (inside.code !== 0 || inside.stdout.trim() !== "true") throw new Error("production target is not a Git working tree");
+    const [origin, branch, status, worktreeOutput] = await Promise.all([
+      this.read(target.targetRepo, ["remote", "get-url", "origin"]),
+      this.read(target.targetRepo, ["branch", "--show-current"]),
+      this.read(target.targetRepo, ["status", "--porcelain"]),
+      this.read(target.targetRepo, ["worktree", "list", "--porcelain"]),
+    ]);
+    if (!originMatchesProduction(origin)) throw new Error("production clone origin does not match AZ-claude/slot");
+    if (branch !== PRODUCTION_BASE_BRANCH) throw new Error("production clone must be attached to master; detached HEAD is not allowed");
+    if (status !== "") throw new Error("production clone is dirty");
+    assertProductionWorktreeOwnership(parseWorktrees(worktreeOutput), target.targetRepo, stateRoot);
+  }
 }
 
 export function matchesGlob(path: string, glob: string): boolean {
@@ -249,4 +312,35 @@ function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()
 function samePath(left: string, right: string): boolean {
   const normalize = (value: string): string => resolve(value).replace(/^\/private(?=\/)/, "");
   return normalize(left) === normalize(right);
+}
+
+function assertProductionTargetDeclaration(target: ProductionTargetConfig): void {
+  if (resolve(target.targetRepo) !== PRODUCTION_TARGET_REPO || target.baseBranch !== PRODUCTION_BASE_BRANCH || target.githubRepo !== PRODUCTION_GITHUB_REPO) {
+    throw new Error("production target declaration does not match the v1 slot/master boundary");
+  }
+}
+
+function productionOriginUrl(): string { return `https://github.com/${PRODUCTION_GITHUB_REPO}.git`; }
+
+function originMatchesProduction(origin: string): boolean {
+  const normalized = origin.trim().replace(/\/$/, "").replace(/\.git$/, "");
+  return normalized === `https://github.com/${PRODUCTION_GITHUB_REPO}` || normalized === `git@github.com:${PRODUCTION_GITHUB_REPO}` || normalized === `ssh://git@github.com/${PRODUCTION_GITHUB_REPO}`;
+}
+
+function assertProductionWorktreeOwnership(worktrees: readonly { path: string; branch: string }[], targetRepo: string, stateRoot: string): void {
+  const base = worktrees.find((worktree) => samePath(worktree.path, targetRepo));
+  if (base === undefined || base.branch !== `refs/heads/${PRODUCTION_BASE_BRANCH}`) throw new Error("production base checkout ownership is invalid or detached");
+  const permittedRoot = resolve(stateRoot, "worktrees");
+  for (const worktree of worktrees) {
+    if (samePath(worktree.path, targetRepo)) continue;
+    const path = resolve(worktree.path);
+    const within = relative(permittedRoot, path);
+    if (within === "" || within.startsWith("..") || within.includes("/..") || !worktree.branch.startsWith("refs/heads/agent/")) {
+      throw new Error("production active worktree ownership is invalid");
+    }
+  }
+}
+
+async function exists(path: string): Promise<boolean> {
+  try { await access(path); return true; } catch { return false; }
 }

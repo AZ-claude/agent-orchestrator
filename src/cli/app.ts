@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
+import { execFile as nodeExecFile } from "node:child_process";
+import { promisify } from "node:util";
 import { isAbsolute, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { CheckpointStore } from "../checkpoint/index.js";
@@ -10,7 +12,7 @@ import { CliOperations } from "./cli.js";
 import { PrivacySafeLogger } from "../logging/index.js";
 import { preflightLocalWorker } from "../opencode/index.js";
 import { RuntimeComposition, createRuntimeIssueBoundary } from "../runtime/index.js";
-import { assertDisposableRuntimeTarget, AO_LOCAL_MODEL, REQUIRED_LOCAL_CONTEXT } from "../config/index.js";
+import { assertExecutableRuntimeTarget, AO_LOCAL_MODEL, declaredRuntimeTarget, REQUIRED_LOCAL_CONTEXT } from "../config/index.js";
 import { GitAdapter, defaultCommandRunner } from "../git/index.js";
 import { CloudWorkerAdapter } from "../worker/cloud.js";
 import { DurableWorkerRuntime, WorkerDispatcher, WorkerRunRouter } from "../worker/index.js";
@@ -37,6 +39,8 @@ export interface LoadedRuntime {
 }
 
 const SUPPORTED_DELTA_MANIFEST_IDS = new Set(["agent-orchestrator-preinstall-delta", "agent-orchestrator-qwen-opencode-worker-preinstall-delta"]);
+const SUPPORTED_RUNTIME_MANIFEST_IDS = new Set(["agent-orchestrator-runtime-composition", "agent-orchestrator-production"]);
+const execFile = promisify(nodeExecFile);
 
 /**
  * The concrete daemon composition. It deliberately performs only file reads,
@@ -56,10 +60,11 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
     if (config.pilot.targetRepo !== PILOT_TARGET_REPO) throw new Error(`configured pilot target must equal ${PILOT_TARGET_REPO}`);
     const manifestPath = resolve(root, config.pilot.manifestPath);
     if (!isWithin(root, manifestPath)) throw new Error("manifest path must remain inside the repository");
-    const manifest = config.runtime
-      ? parseManifestForTarget(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath), config.runtime.disposable.targetRepo)
-      : parseManifest(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath));
-    const supported = config.runtime ? manifest.version === 2 && manifest.handoff.id === "agent-orchestrator-runtime-composition" : manifest.version === 2 && SUPPORTED_DELTA_MANIFEST_IDS.has(manifest.handoff.id);
+    const manifestTarget = config.runtime === undefined ? undefined : declaredRuntimeTarget(config.runtime);
+    const manifest = manifestTarget === undefined
+      ? parseManifest(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath))
+      : parseManifestForTarget(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath), manifestTarget.targetRepo);
+    const supported = config.runtime ? manifest.version === 2 && SUPPORTED_RUNTIME_MANIFEST_IDS.has(manifest.handoff.id) : manifest.version === 2 && SUPPORTED_DELTA_MANIFEST_IDS.has(manifest.handoff.id);
     if (!supported) throw new Error("entrypoint requires a supported canonical version 2 manifest");
     const checkpoints = await new CheckpointStore(config.stateRoot).list();
     return { root, config, manifest, checkpoints, ...(config.runtime === undefined ? {} : { runtimeTarget: config.runtime }) };
@@ -68,21 +73,21 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
   return {
     bootstrap: async () => {
       const runtime = await load();
-      const targetRepository = runtime.config.runtime === undefined ? undefined : requiredTargetRepository(runtime.config.runtime.disposable.githubRepo);
-      if (runtime.config.runtime !== undefined) assertDisposableRuntimeTarget(runtime.config.runtime);
+      const target = runtime.config.runtime === undefined ? undefined : assertExecutableRuntimeTarget(runtime.config.runtime);
+      const targetRepository = target === undefined ? undefined : requiredTargetRepository(target.githubRepo);
       const targetGh = runtime.config.runtime === undefined
         ? gh
         : options.gh === undefined
           ? new TargetAwareGhClient(defaultCommandRunner, requiredTargetRepository(targetRepository))
           : requireTargetAwareGh(options.gh, requiredTargetRepository(targetRepository));
-      if (runtime.config.runtime !== undefined) await requireTargetAwareGh(targetGh, requiredTargetRepository(targetRepository)).verifyTarget(runtime.config.runtime.disposable.targetRepo);
+      if (target !== undefined) await requireTargetAwareGh(targetGh, requiredTargetRepository(targetRepository)).verifyTarget(target.targetRepo);
       await new GitHubIssueProjector(targetGh).project(runtime.manifest);
       logger.info("bootstrap_complete", { manifest: runtime.manifest.handoff.id });
     },
     runOnce: async () => {
       const runtime = await load();
       if (runtime.config.runtime !== undefined) {
-        const target = assertDisposableRuntimeTarget(runtime.config.runtime);
+        const target = assertExecutableRuntimeTarget(runtime.config.runtime);
         const configuredRepo = requiredTargetRepository(target.githubRepo);
         const targetGh = options.gh === undefined ? new TargetAwareGhClient(defaultCommandRunner, configuredRepo) : requireTargetAwareGh(options.gh, configuredRepo);
         await targetGh.verifyTarget(target.targetRepo);
@@ -116,6 +121,17 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
       const result = await preflightLocalWorker(local);
       logger.info("local_preflight", { provider: result.provider, model: result.model, contextTokens: result.contextTokens, pass: result.pass, checks: result.checks });
       if (!result.pass) throw new Error("local worker preflight failed");
+      if (runtime.config.runtime?.target === "production") {
+        const target = runtime.config.runtime.production;
+        const repository = requiredTargetRepository(target.githubRepo);
+        const targetGh = options.gh === undefined ? new TargetAwareGhClient(defaultCommandRunner, repository) : requireTargetAwareGh(options.gh, repository);
+        await requireTargetAwareGh(targetGh, repository).verifyTarget(target.targetRepo);
+        const facts = await new GitAdapter().inspectProductionTarget(target, runtime.config.stateRoot);
+        const launcher = await productionLauncherInputs(env, runtime.config.stateRoot);
+        const reviewer = await commandAvailable("codex");
+        logger.info("production_preflight", { pass: reviewer && launcher.pass, productionEnabled: target.enabled, targetRepo: facts.targetRepo, branch: facts.branch, head: facts.head, originMaster: facts.originMaster, remoteMaster: facts.remoteMaster, stateRoot: runtime.config.stateRoot, maxLunaWorkers: runtime.config.maxLunaWorkers, reviewerCapability: reviewer, cloudWorkerCapability: reviewer, launchAgentInputs: launcher.missing });
+        if (!reviewer || !launcher.pass) throw new Error("production reviewer, cloud worker, or LaunchAgent input preflight failed");
+      }
     },
   };
 }
@@ -124,9 +140,9 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
 export function createConcreteRuntime(runtime: LoadedRuntime, injectedGh?: GhClient): RuntimeComposition {
   const targetConfig = runtime.config.runtime;
   if (targetConfig === undefined) throw new Error("runtime target configuration is required");
-  const target = assertDisposableRuntimeTarget(targetConfig);
+  const target = assertExecutableRuntimeTarget(targetConfig);
   const repository = target.githubRepo;
-  if (repository === undefined) throw new Error("disposable runtime target must explicitly declare githubRepo");
+  if (repository === undefined) throw new Error("runtime target must explicitly declare githubRepo");
   const gh = injectedGh === undefined ? new TargetAwareGhClient(defaultCommandRunner, repository) : requireTargetAwareGh(injectedGh, repository);
   const router = new WorkerRunRouter(runtime.config.worker);
   const cloud = new CloudWorkerAdapter(new LunaRunner(undefined, { maxResumeAttempts: runtime.config.maxResumeAttempts }));
@@ -166,7 +182,7 @@ function requireTargetAwareGh(client: GhClient, repository: string): TargetAware
 }
 
 function requiredTargetRepository(repository: string | undefined): string {
-  if (repository === undefined) throw new Error("disposable runtime target must explicitly declare githubRepo");
+  if (repository === undefined) throw new Error("runtime target must explicitly declare githubRepo");
   return repository;
 }
 
@@ -178,10 +194,11 @@ export async function loadRuntime(options: CliAppOptions = {}): Promise<LoadedRu
   const configPath = requiredAbsoluteEnv(env, "AO_CONFIG_PATH");
   const config = parsePilotConfig(parseDocument(await readFile(configPath, "utf8"), configPath));
   const manifestPath = resolve(cwd, config.pilot.manifestPath);
-  const manifest = config.runtime
-    ? parseManifestForTarget(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath), config.runtime.disposable.targetRepo)
-    : parseManifest(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath));
-  const supported = config.runtime ? manifest.version === 2 && manifest.handoff.id === "agent-orchestrator-runtime-composition" : manifest.version === 2 && SUPPORTED_DELTA_MANIFEST_IDS.has(manifest.handoff.id);
+  const manifestTarget = config.runtime === undefined ? undefined : declaredRuntimeTarget(config.runtime);
+  const manifest = manifestTarget === undefined
+    ? parseManifest(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath))
+    : parseManifestForTarget(await parseDocument(await readFile(manifestPath, "utf8"), manifestPath), manifestTarget.targetRepo);
+  const supported = config.runtime ? manifest.version === 2 && SUPPORTED_RUNTIME_MANIFEST_IDS.has(manifest.handoff.id) : manifest.version === 2 && SUPPORTED_DELTA_MANIFEST_IDS.has(manifest.handoff.id);
   if (!supported) throw new Error("entrypoint requires a supported canonical version 2 manifest");
   return { root: cwd, config, manifest, checkpoints: await new CheckpointStore(config.stateRoot).list(), ...(config.runtime === undefined ? {} : { runtimeTarget: config.runtime }) };
 }
@@ -199,4 +216,25 @@ function requiredAbsoluteEnv(env: Readonly<Record<string, string | undefined>>, 
 function isWithin(root: string, candidate: string): boolean {
   const relative = candidate === root ? "" : candidate.startsWith(`${root}/`) ? candidate.slice(root.length + 1) : "outside";
   return relative !== "outside" && !relative.split("/").includes("..");
+}
+
+async function commandAvailable(command: string): Promise<boolean> {
+  try { await execFile(command, ["--version"], { maxBuffer: 64 * 1024 }); return true; } catch { return false; }
+}
+
+async function productionLauncherInputs(env: Readonly<Record<string, string | undefined>>, stateRoot: string): Promise<{ readonly pass: boolean; readonly missing: readonly string[] }> {
+  const entries = [
+    ["workdir", env.AO_LAUNCHD_WORKDIR],
+    ["cli", env.AO_LAUNCHD_CLI],
+    ["node", env.AO_LAUNCHD_NODE],
+    ["config", env.AO_CONFIG_PATH],
+    ["log-dir", env.AO_LAUNCHD_LOG_DIR],
+    ["state-root", stateRoot],
+  ] as const;
+  const checks = await Promise.all(entries.map(async ([name, path]) => ({ name, pass: path !== undefined && isAbsolute(path) && await pathExists(path) })));
+  return { pass: checks.every((check) => check.pass), missing: checks.filter((check) => !check.pass).map((check) => check.name) };
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try { await access(path); return true; } catch { return false; }
 }

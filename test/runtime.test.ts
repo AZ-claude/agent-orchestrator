@@ -34,7 +34,7 @@ class FakeIssues implements RuntimeIssueBoundary {
 }
 
 function targetConfig(repo: string): RuntimeTargetConfig {
-  return parseRuntimeTargetConfig({ target: "disposable", disposable: { targetRepo: repo, baseBranch: "main", allowedRoots: [tmpdir()] }, production: { enabled: false, targetRepo: "/Users/eita/projects/slot", baseBranch: "main" } });
+  return parseRuntimeTargetConfig({ target: "disposable", disposable: { targetRepo: repo, baseBranch: "main", allowedRoots: [tmpdir()] }, production: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/slot", baseBranch: "master", githubRepo: "AZ-claude/slot" } });
 }
 
 function fakeWorker(repo: string, counters: { starts: number; resumes: number }): { start: (options: { worktree: string }) => Promise<WorkerDispatchResult>; resume: () => Promise<WorkerDispatchResult>; retire: () => Promise<boolean> } {

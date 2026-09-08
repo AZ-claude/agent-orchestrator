@@ -12,6 +12,7 @@ import {
   parseManifestForPilot,
   parseRuntimeTargetConfig,
   assertDisposableRuntimeTarget,
+  assertExecutableRuntimeTarget,
   parsePlanConflictClaim,
   parseReviewResult,
   SchemaValidationError,
@@ -68,7 +69,7 @@ test("AO-43 accepts only an explicitly allowlisted disposable target and keeps p
   const runtime = parseRuntimeTargetConfig({
     target: "disposable",
     disposable: { targetRepo: "/tmp/agent-orchestrator-fixtures/task-1", baseBranch: "main", allowedRoots: ["/tmp/agent-orchestrator-fixtures"] },
-    production: { enabled: false, targetRepo: "/Users/eita/projects/slot", baseBranch: "main" },
+    production: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/slot", baseBranch: "master", githubRepo: "AZ-claude/slot" },
   });
   assert.equal(assertDisposableRuntimeTarget(runtime).targetRepo, "/tmp/agent-orchestrator-fixtures/task-1");
   for (const targetRepo of ["/tmp/other", "/Users/eita/projects/slot", "/tmp/kiji-fixture"]) {
@@ -79,8 +80,14 @@ test("AO-43 accepts only an explicitly allowlisted disposable target and keeps p
     assert.throws(() => parseRuntimeTargetConfig({ ...runtime, disposable: { ...runtime.disposable, githubRepo } }), /protected \/slot or \/kiji/);
   }
   const production = parseRuntimeTargetConfig({ ...runtime, target: "production" });
-  assert.throws(() => assertDisposableRuntimeTarget(production), /production execution is not enabled/);
-  assert.throws(() => parseRuntimeTargetConfig({ ...runtime, production: { ...runtime.production, enabled: true } }), /must equal false/);
+  assert.throws(() => assertExecutableRuntimeTarget(production), /explicit enabled: true/);
+  assert.equal(assertExecutableRuntimeTarget(parseRuntimeTargetConfig({ ...runtime, target: "production", production: { ...runtime.production, enabled: true } })).baseBranch, "master");
+  for (const productionOverride of [
+    { ...runtime.production, baseBranch: "main" },
+    { ...runtime.production, githubRepo: "AZ-claude/kiji" },
+    { ...runtime.production, githubRepo: "example/other" },
+    { ...runtime.production, targetRepo: "/tmp/slot" },
+  ]) assert.throws(() => parseRuntimeTargetConfig({ ...runtime, production: productionOverride }), /must equal|orchestrator-owned/);
 });
 
 test("AO-36 contract fixes both owners, context, and safe lease lifecycle", async () => {
@@ -192,8 +199,8 @@ test("stateRoot must be outside the pilot repository", () => {
 });
 
 test("AO-43 keeps durable state outside the disposable target", () => {
-  const config = { ...defaultPilotConfig(), runtime: { target: "disposable" as const, disposable: { targetRepo: "/tmp/ao-target", baseBranch: "main", allowedRoots: ["/tmp"] }, production: { enabled: false as const, targetRepo: "/Users/eita/projects/slot", baseBranch: "main" } } };
-  assert.throws(() => configSchema.parse({ ...config, stateRoot: "/tmp/ao-target/state" }), /outside the disposable target/);
+  const config = { ...defaultPilotConfig(), runtime: { target: "disposable" as const, disposable: { targetRepo: "/tmp/ao-target", baseBranch: "main", allowedRoots: ["/tmp"] }, production: { enabled: false as const, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/slot", baseBranch: "master", githubRepo: "AZ-claude/slot" as const } } };
+  assert.throws(() => configSchema.parse({ ...config, stateRoot: "/tmp/ao-target/state" }), /outside every declared runtime target/);
 });
 
 test("checkpoint schema contains only restart data and allows absent process values", () => {
