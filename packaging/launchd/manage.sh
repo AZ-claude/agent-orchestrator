@@ -14,6 +14,7 @@ NODE_BIN=${AO_LAUNCHD_NODE:-node}
 WORKDIR=${AO_LAUNCHD_WORKDIR:-}
 CLI_PATH=${AO_LAUNCHD_CLI:-}
 LOG_DIR=${AO_LAUNCHD_LOG_DIR:-$USER_HOME/Library/Logs/AgentOrchestrator}
+CONFIG_PATH=${AO_CONFIG_PATH:-}
 
 usage() {
   echo "usage: $0 verify|status|install|uninstall" >&2
@@ -36,6 +37,8 @@ verify_install_inputs() {
   [ -d "$WORKDIR" ] || { echo "workdir does not exist: $WORKDIR" >&2; exit 1; }
   [ -n "$CLI_PATH" ] || { echo "AO_LAUNCHD_CLI is required for install" >&2; exit 1; }
   [ -f "$CLI_PATH" ] || { echo "CLI entrypoint does not exist: $CLI_PATH" >&2; exit 1; }
+  [ -n "$CONFIG_PATH" ] || { echo "AO_CONFIG_PATH is required for install" >&2; exit 1; }
+  [ -f "$CONFIG_PATH" ] || { echo "config does not exist: $CONFIG_PATH" >&2; exit 1; }
   [ -x "$NODE_BIN" ] || command -v "$NODE_BIN" >/dev/null 2>&1 || { echo "node executable not found: $NODE_BIN" >&2; exit 1; }
 }
 
@@ -43,7 +46,7 @@ render_target() {
   mkdir -p "$TARGET_DIR"
   temp=$(mktemp "$TARGET_DIR/.$LABEL.XXXXXX")
   trap 'rm -f "$temp"' EXIT HUP INT TERM
-  "$NODE_BIN" "$SCRIPT_DIR/render.mjs" "$TEMPLATE" "$temp" "$NODE_BIN" "$CLI_PATH" "$WORKDIR" "$LOG_DIR"
+  "$NODE_BIN" "$SCRIPT_DIR/render.mjs" "$TEMPLATE" "$temp" "$NODE_BIN" "$CLI_PATH" "$WORKDIR" "$LOG_DIR" "$CONFIG_PATH"
   "$PLUTIL" -lint "$temp" >/dev/null
   chmod 600 "$temp"
   mv -f "$temp" "$TARGET"

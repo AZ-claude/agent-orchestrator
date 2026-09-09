@@ -12,6 +12,11 @@
 	</array>
 	<key>WorkingDirectory</key>
 	<string>__WORKDIR__</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>AO_CONFIG_PATH</key>
+		<string>__CONFIG_PATH__</string>
+	</dict>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
