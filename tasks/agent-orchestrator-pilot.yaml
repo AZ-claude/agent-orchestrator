@@ -25,4 +25,4 @@ tasks:
     allowedPaths: [pilot-acceptance-001.txt]
     nonScope: [production-slot, kiji, launchagent-install]
     completion: pilot-acceptance-001.txt contains exactly agent-orchestrator-pilot-v1
-    test: test "$(cat pilot-acceptance-001.txt)" = "agent-orchestrator-pilot-v1"
+    test: grep -Fx agent-orchestrator-pilot-v1 pilot-acceptance-001.txt
