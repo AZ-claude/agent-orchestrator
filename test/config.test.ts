@@ -69,6 +69,7 @@ test("AO-43 accepts only an explicitly allowlisted disposable target and keeps p
   const runtime = parseRuntimeTargetConfig({
     target: "disposable",
     disposable: { targetRepo: "/tmp/agent-orchestrator-fixtures/task-1", baseBranch: "main", allowedRoots: ["/tmp/agent-orchestrator-fixtures"] },
+    pilot: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/pilot", baseBranch: "main", githubRepo: "AZ-claude/agent-orchestrator-pilot" },
     production: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/slot", baseBranch: "master", githubRepo: "AZ-claude/slot" },
   });
   assert.equal(assertDisposableRuntimeTarget(runtime).targetRepo, "/tmp/agent-orchestrator-fixtures/task-1");
@@ -88,6 +89,23 @@ test("AO-43 accepts only an explicitly allowlisted disposable target and keeps p
     { ...runtime.production, githubRepo: "example/other" },
     { ...runtime.production, targetRepo: "/tmp/slot" },
   ]) assert.throws(() => parseRuntimeTargetConfig({ ...runtime, production: productionOverride }), /must equal|orchestrator-owned/);
+});
+
+test("AO-60 pilot is a separate fixed environment and cannot target production", () => {
+  const base = {
+    target: "pilot",
+    disposable: { targetRepo: "/tmp/agent-orchestrator-fixtures/task-1", baseBranch: "main", allowedRoots: ["/tmp/agent-orchestrator-fixtures"] },
+    pilot: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/pilot", baseBranch: "main", githubRepo: "AZ-claude/agent-orchestrator-pilot" },
+    production: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/slot", baseBranch: "master", githubRepo: "AZ-claude/slot" },
+  } as const;
+  const parsed = parseRuntimeTargetConfig(base);
+  assert.throws(() => assertExecutableRuntimeTarget(parsed), /pilot execution requires/);
+  assert.equal(assertExecutableRuntimeTarget(parseRuntimeTargetConfig({ ...base, pilot: { ...base.pilot, enabled: true } })).targetRepo, "/Users/eita/.local/share/agent-orchestrator/targets/pilot");
+  for (const pilotOverride of [
+    { ...base.pilot, githubRepo: "AZ-claude/slot" },
+    { ...base.pilot, baseBranch: "master" },
+    { ...base.pilot, targetRepo: "/Users/eita/projects/slot" },
+  ]) assert.throws(() => parseRuntimeTargetConfig({ ...base, pilot: pilotOverride }), /must equal|orchestrator-owned/);
 });
 
 test("AO-36 contract fixes both owners, context, and safe lease lifecycle", async () => {
@@ -199,7 +217,7 @@ test("stateRoot must be outside the pilot repository", () => {
 });
 
 test("AO-43 keeps durable state outside the disposable target", () => {
-  const config = { ...defaultPilotConfig(), runtime: { target: "disposable" as const, disposable: { targetRepo: "/tmp/ao-target", baseBranch: "main", allowedRoots: ["/tmp"] }, production: { enabled: false as const, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/slot", baseBranch: "master", githubRepo: "AZ-claude/slot" as const } } };
+  const config = { ...defaultPilotConfig(), runtime: { target: "disposable" as const, disposable: { targetRepo: "/tmp/ao-target", baseBranch: "main", allowedRoots: ["/tmp"] }, pilot: { enabled: false as const, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/pilot", baseBranch: "main", githubRepo: "AZ-claude/agent-orchestrator-pilot" as const }, production: { enabled: false as const, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/slot", baseBranch: "master", githubRepo: "AZ-claude/slot" as const } } };
   assert.throws(() => configSchema.parse({ ...config, stateRoot: "/tmp/ao-target/state" }), /outside every declared runtime target/);
 });
 

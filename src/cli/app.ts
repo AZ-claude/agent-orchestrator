@@ -39,7 +39,7 @@ export interface LoadedRuntime {
 }
 
 const SUPPORTED_DELTA_MANIFEST_IDS = new Set(["agent-orchestrator-preinstall-delta", "agent-orchestrator-qwen-opencode-worker-preinstall-delta"]);
-const SUPPORTED_RUNTIME_MANIFEST_IDS = new Set(["agent-orchestrator-runtime-composition", "agent-orchestrator-production"]);
+const SUPPORTED_RUNTIME_MANIFEST_IDS = new Set(["agent-orchestrator-runtime-composition", "agent-orchestrator-production", "agent-orchestrator-pilot"]);
 const execFile = promisify(nodeExecFile);
 
 /**
@@ -121,16 +121,18 @@ export function createCliOperations(options: CliAppOptions = {}): CliOperations 
       const result = await preflightLocalWorker(local);
       logger.info("local_preflight", { provider: result.provider, model: result.model, contextTokens: result.contextTokens, pass: result.pass, checks: result.checks });
       if (!result.pass) throw new Error("local worker preflight failed");
-      if (runtime.config.runtime?.target === "production") {
-        const target = runtime.config.runtime.production;
+      if (runtime.config.runtime?.target === "production" || runtime.config.runtime?.target === "pilot") {
+        const target = runtime.config.runtime.target === "production" ? runtime.config.runtime.production : runtime.config.runtime.pilot;
         const repository = requiredTargetRepository(target.githubRepo);
         const targetGh = options.gh === undefined ? new TargetAwareGhClient(defaultCommandRunner, repository) : requireTargetAwareGh(options.gh, repository);
         await requireTargetAwareGh(targetGh, repository).verifyTarget(target.targetRepo);
-        const facts = await new GitAdapter().inspectProductionTarget(target, runtime.config.stateRoot);
+        const facts = runtime.config.runtime.target === "production"
+          ? await new GitAdapter().inspectProductionTarget(runtime.config.runtime.production, runtime.config.stateRoot)
+          : await new GitAdapter().inspectPilotTarget(runtime.config.runtime.pilot, runtime.config.stateRoot);
         const launcher = await productionLauncherInputs(env, runtime.config.stateRoot);
         const reviewer = await commandAvailable("codex");
-        logger.info("production_preflight", { pass: reviewer && launcher.pass, productionEnabled: target.enabled, targetRepo: facts.targetRepo, branch: facts.branch, head: facts.head, originMaster: facts.originMaster, remoteMaster: facts.remoteMaster, stateRoot: runtime.config.stateRoot, maxLunaWorkers: runtime.config.maxLunaWorkers, reviewerCapability: reviewer, cloudWorkerCapability: reviewer, launchAgentInputs: launcher.missing });
-        if (!reviewer || !launcher.pass) throw new Error("production reviewer, cloud worker, or LaunchAgent input preflight failed");
+        logger.info("runtime_preflight", { pass: reviewer && launcher.pass, environment: runtime.config.runtime.target, enabled: target.enabled, targetRepo: facts.targetRepo, branch: facts.branch, head: facts.head, originMaster: facts.originMaster, remoteMaster: facts.remoteMaster, stateRoot: runtime.config.stateRoot, maxLunaWorkers: runtime.config.maxLunaWorkers, reviewerCapability: reviewer, cloudWorkerCapability: reviewer, launchAgentInputs: launcher.missing });
+        if (!reviewer || !launcher.pass) throw new Error("runtime reviewer, cloud worker, or LaunchAgent input preflight failed");
       }
     },
   };

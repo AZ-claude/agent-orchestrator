@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-LABEL="com.az-claude.agent-orchestrator"
+LABEL=${AO_LAUNCHD_LABEL:-com.az-claude.agent-orchestrator}
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-TEMPLATE="$SCRIPT_DIR/$LABEL.plist.template"
+TEMPLATE="$SCRIPT_DIR/com.az-claude.agent-orchestrator.plist.template"
 USER_HOME=${AO_LAUNCHD_HOME:-${HOME:?HOME is required}}
 TARGET_DIR="$USER_HOME/Library/LaunchAgents"
 TARGET="$TARGET_DIR/$LABEL.plist"
@@ -46,7 +46,7 @@ render_target() {
   mkdir -p "$TARGET_DIR"
   temp=$(mktemp "$TARGET_DIR/.$LABEL.XXXXXX")
   trap 'rm -f "$temp"' EXIT HUP INT TERM
-  "$NODE_BIN" "$SCRIPT_DIR/render.mjs" "$TEMPLATE" "$temp" "$NODE_BIN" "$CLI_PATH" "$WORKDIR" "$LOG_DIR" "$CONFIG_PATH"
+  "$NODE_BIN" "$SCRIPT_DIR/render.mjs" "$TEMPLATE" "$temp" "$NODE_BIN" "$CLI_PATH" "$WORKDIR" "$LOG_DIR" "$CONFIG_PATH" "$LABEL"
   "$PLUTIL" -lint "$temp" >/dev/null
   chmod 600 "$temp"
   mv -f "$temp" "$TARGET"

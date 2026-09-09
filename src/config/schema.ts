@@ -66,6 +66,9 @@ export const PRODUCTION_TARGET_ROOT = "/Users/eita/.local/share/agent-orchestrat
 export const PRODUCTION_TARGET_REPO = `${PRODUCTION_TARGET_ROOT}/slot`;
 export const PRODUCTION_GITHUB_REPO = "AZ-claude/slot";
 export const PRODUCTION_BASE_BRANCH = "master";
+export const PERMANENT_PILOT_TARGET_REPO = `${PRODUCTION_TARGET_ROOT}/pilot`;
+export const PERMANENT_PILOT_GITHUB_REPO = "AZ-claude/agent-orchestrator-pilot";
+export const PERMANENT_PILOT_BASE_BRANCH = "main";
 const FORBIDDEN_DISPOSABLE_GITHUB_REPOS = new Set(["AZ-claude/slot", "AZ-claude/kiji"]);
 
 export interface PilotConfig {
@@ -106,13 +109,22 @@ export interface ProductionTargetConfig {
   readonly githubRepo: typeof PRODUCTION_GITHUB_REPO;
 }
 
+export interface PermanentPilotTargetConfig {
+  /** Pilot execution also requires an explicit operator-controlled opt-in. */
+  readonly enabled: boolean;
+  readonly targetRepo: typeof PERMANENT_PILOT_TARGET_REPO;
+  readonly baseBranch: typeof PERMANENT_PILOT_BASE_BRANCH;
+  readonly githubRepo: typeof PERMANENT_PILOT_GITHUB_REPO;
+}
+
 export interface RuntimeTargetConfig {
-  readonly target: "disposable" | "production";
+  readonly target: "disposable" | "pilot" | "production";
   readonly disposable: DisposableTargetConfig;
+  readonly pilot: PermanentPilotTargetConfig;
   readonly production: ProductionTargetConfig;
 }
 
-export type ExecutableRuntimeTargetConfig = DisposableTargetConfig | ProductionTargetConfig;
+export type ExecutableRuntimeTargetConfig = DisposableTargetConfig | PermanentPilotTargetConfig | ProductionTargetConfig;
 
 export interface LocalWorkerConfig {
   readonly executable: string;
@@ -311,14 +323,23 @@ export function assertProductionRuntimeTarget(config: RuntimeTargetConfig): Prod
   return config.production;
 }
 
+export function assertPilotRuntimeTarget(config: RuntimeTargetConfig): PermanentPilotTargetConfig {
+  if (config.target !== "pilot") throw new SchemaValidationError("runtime target config", [{ path: "$.target", message: "pilot target is required" }]);
+  if (!config.pilot.enabled) throw new SchemaValidationError("runtime target config", [{ path: "$.pilot.enabled", message: "pilot execution requires explicit enabled: true" }]);
+  return config.pilot;
+}
+
 /** Select the only target that may execute. Disabled production config can still be preflighted. */
 export function assertExecutableRuntimeTarget(config: RuntimeTargetConfig): ExecutableRuntimeTargetConfig {
-  return config.target === "disposable" ? assertDisposableRuntimeTarget(config) : assertProductionRuntimeTarget(config);
+  if (config.target === "disposable") return assertDisposableRuntimeTarget(config);
+  if (config.target === "pilot") return assertPilotRuntimeTarget(config);
+  return assertProductionRuntimeTarget(config);
 }
 
 /** Select a declared target without granting execution authority. */
 export function declaredRuntimeTarget(config: RuntimeTargetConfig): ExecutableRuntimeTargetConfig {
-  return config.target === "disposable" ? config.disposable : config.production;
+  if (config.target === "disposable") return config.disposable;
+  return config.target === "pilot" ? config.pilot : config.production;
 }
 
 export function parseManifest(value: unknown): TaskManifest {
@@ -434,7 +455,7 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
   const humanGateApprovals = value.humanGateApprovals === undefined ? null : requiredStringArray(value, "humanGateApprovals", path, issues);
   const runtime = value.runtime === undefined ? null : validateRuntimeTargetConfig(value.runtime, `${path}.runtime`, issues);
   const worker = value.worker === undefined ? null : validateWorkerConfig(value.worker, `${path}.worker`, issues);
-  if (runtime !== null && runtime !== undefined && stateRoot !== undefined && (isWithinPath(stateRoot, runtime.disposable.targetRepo) || isWithinPath(stateRoot, runtime.production.targetRepo))) {
+  if (runtime !== null && runtime !== undefined && stateRoot !== undefined && (isWithinPath(stateRoot, runtime.disposable.targetRepo) || isWithinPath(stateRoot, runtime.pilot.targetRepo) || isWithinPath(stateRoot, runtime.production.targetRepo))) {
     issues.push(issue(`${path}.stateRoot`, "must be outside every declared runtime target repository"));
   }
 
@@ -467,13 +488,15 @@ function validatePilotConfig(value: unknown, path: string, issues: ValidationIss
 
 function validateRuntimeTargetConfig(value: unknown, path: string, issues: ValidationIssue[]): RuntimeTargetConfig | undefined {
   if (!isRecord(value)) { issues.push(issue(path, "must be an object")); return undefined; }
-  rejectUnknown(value, ["target", "disposable", "production"], path, issues);
-  const target = requiredEnum(value, "target", ["disposable", "production"] as const, path, issues);
+  rejectUnknown(value, ["target", "disposable", "pilot", "production"], path, issues);
+  const target = requiredEnum(value, "target", ["disposable", "pilot", "production"] as const, path, issues);
   const disposable = requiredRecord(value, "disposable", path, issues);
+  const pilot = requiredRecord(value, "pilot", path, issues);
   const production = requiredRecord(value, "production", path, issues);
   const disposableValue = disposable === undefined ? undefined : validateDisposableTargetConfig(disposable, `${path}.disposable`, issues);
+  const pilotValue = pilot === undefined ? undefined : validatePermanentPilotTargetConfig(pilot, `${path}.pilot`, issues);
   const productionValue = production === undefined ? undefined : validateProductionTargetConfig(production, `${path}.production`, issues);
-  if (target !== undefined && disposableValue !== undefined && productionValue !== undefined && !issuesForPath(issues, path)) return { target, disposable: disposableValue, production: productionValue };
+  if (target !== undefined && disposableValue !== undefined && pilotValue !== undefined && productionValue !== undefined && !issuesForPath(issues, path)) return { target, disposable: disposableValue, pilot: pilotValue, production: productionValue };
   return undefined;
 }
 
@@ -508,6 +531,18 @@ function validateProductionTargetConfig(value: Record<string, unknown>, path: st
   if (targetRepo !== undefined && resolve(targetRepo) !== PRODUCTION_TARGET_REPO) issues.push(issue(`${path}.targetRepo`, `must equal the orchestrator-owned production clone ${PRODUCTION_TARGET_REPO}`));
   if (baseBranch !== undefined && baseBranch !== PRODUCTION_BASE_BRANCH) issues.push(issue(`${path}.baseBranch`, `must equal ${PRODUCTION_BASE_BRANCH}`));
   if (enabled !== undefined && targetRepo !== undefined && baseBranch !== undefined && githubRepo !== undefined && !issuesForPath(issues, path)) return { enabled, targetRepo, baseBranch, githubRepo };
+  return undefined;
+}
+
+function validatePermanentPilotTargetConfig(value: Record<string, unknown>, path: string, issues: ValidationIssue[]): PermanentPilotTargetConfig | undefined {
+  rejectUnknown(value, ["enabled", "targetRepo", "baseBranch", "githubRepo"], path, issues);
+  const enabled = requiredBoolean(value, "enabled", path, issues);
+  const targetRepo = requiredAbsolutePath(value, "targetRepo", path, issues);
+  const baseBranch = requiredString(value, "baseBranch", path, issues);
+  const githubRepo = requiredLiteral(value, "githubRepo", PERMANENT_PILOT_GITHUB_REPO, path, issues);
+  if (targetRepo !== undefined && resolve(targetRepo) !== PERMANENT_PILOT_TARGET_REPO) issues.push(issue(`${path}.targetRepo`, `must equal the orchestrator-owned pilot clone ${PERMANENT_PILOT_TARGET_REPO}`));
+  if (baseBranch !== undefined && baseBranch !== PERMANENT_PILOT_BASE_BRANCH) issues.push(issue(`${path}.baseBranch`, `must equal ${PERMANENT_PILOT_BASE_BRANCH}`));
+  if (enabled !== undefined && targetRepo !== undefined && baseBranch !== undefined && githubRepo !== undefined && !issuesForPath(issues, path)) return { enabled, targetRepo: PERMANENT_PILOT_TARGET_REPO, baseBranch: PERMANENT_PILOT_BASE_BRANCH, githubRepo };
   return undefined;
 }
 

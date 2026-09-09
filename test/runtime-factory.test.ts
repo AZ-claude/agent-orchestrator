@@ -13,6 +13,7 @@ test("AO-50 factory assembles the concrete runtime from cloud configuration", as
   const target: RuntimeTargetConfig = {
     target: "disposable",
     disposable: { targetRepo, baseBranch: "main", githubRepo: "example/disposable", allowedRoots: ["/tmp"] },
+    pilot: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/pilot", baseBranch: "main", githubRepo: "AZ-claude/agent-orchestrator-pilot" },
     production: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/slot", baseBranch: "master", githubRepo: "AZ-claude/slot" },
   };
   const base = defaultPilotConfig();
@@ -27,6 +28,7 @@ test("AO-50 factory rejects a local worker outside the fixed Qwen contract", asy
   const target: RuntimeTargetConfig = {
     target: "disposable",
     disposable: { targetRepo, baseBranch: "main", githubRepo: "example/disposable", allowedRoots: ["/tmp"] },
+    pilot: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/pilot", baseBranch: "main", githubRepo: "AZ-claude/agent-orchestrator-pilot" },
     production: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/slot", baseBranch: "master", githubRepo: "AZ-claude/slot" },
   };
   const base = defaultPilotConfig();
@@ -41,6 +43,7 @@ test("AO-55 factory composes the exact enabled slot/master production target", a
   const target: RuntimeTargetConfig = {
     target: "production",
     disposable: { targetRepo: "/tmp/agent-orchestrator-disposable-target", baseBranch: "main", githubRepo: "example/disposable", allowedRoots: ["/tmp"] },
+    pilot: { enabled: false, targetRepo: "/Users/eita/.local/share/agent-orchestrator/targets/pilot", baseBranch: "main", githubRepo: "AZ-claude/agent-orchestrator-pilot" },
     production: { enabled: true, targetRepo, baseBranch: "master", githubRepo: "AZ-claude/slot" },
   };
   const base = defaultPilotConfig();

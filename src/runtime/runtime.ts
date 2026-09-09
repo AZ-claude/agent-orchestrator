@@ -6,6 +6,7 @@ import {
   ExecutableRuntimeTargetConfig,
   ExecutionState,
   ManifestTask,
+  PermanentPilotTargetConfig,
   ProductionTargetConfig,
   RuntimeTargetConfig,
   TaskManifest,
@@ -94,6 +95,7 @@ export class RuntimeComposition {
 
   async poll(): Promise<RuntimePollResult> {
     if (this.deps.target.target === "production") await this.git.ensureProductionClone(this.target as ProductionTargetConfig, this.deps.stateRoot);
+    if (this.deps.target.target === "pilot") await this.git.ensurePilotClone(this.target as PermanentPilotTargetConfig, this.deps.stateRoot);
     await this.deps.issues.verifyTarget?.();
     const issues = await this.deps.issues.readOpen();
     const checkpoints = await this.checkpoints.list();

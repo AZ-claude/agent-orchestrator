@@ -1,0 +1,28 @@
+version: 2
+planningAuthority: Terra
+handoff:
+  id: agent-orchestrator-pilot
+  source: docs/runbooks/agent-orchestrator-pilot.md
+  board: docs/runbooks/agent-orchestrator-pilot.md
+  targetRepo: /Users/eita/.local/share/agent-orchestrator/targets/pilot
+  baseBranch: main
+  implementationPromptTemplate: Implement only the pilot marker task, validate it, and leave durable evidence.
+workerCompletionContract:
+  independentReview: required
+  reviewer: same-session-read-only-luna-subagent
+  reviewerContext: task-scope-source-head-review-packet-only
+  reviewerHistory: none
+  onRework: same-implementation-session-fix-validate-rereview
+  completion: reviewer-approve-required-before-merge
+  fallback: only-if-subagent-capability-unavailable
+tasks:
+  - id: PILOT-ACCEPTANCE-001
+    title: Add the pilot acceptance marker file
+    state: READY
+    dependsOn: []
+    parallel: EXCLUSIVE
+    humanGate: false
+    allowedPaths: [pilot-acceptance-001.txt]
+    nonScope: [production-slot, kiji, launchagent-install]
+    completion: pilot-acceptance-001.txt contains exactly agent-orchestrator-pilot-v1
+    test: test "$(cat pilot-acceptance-001.txt)" = "agent-orchestrator-pilot-v1"

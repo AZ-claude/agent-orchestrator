@@ -38,6 +38,11 @@ runtime:
     githubRepo: YOUR_ORG/agent-orchestrator-disposable
     allowedRoots:
       - /tmp
+  pilot:
+    enabled: false
+    targetRepo: /Users/eita/.local/share/agent-orchestrator/targets/pilot
+    baseBranch: main
+    githubRepo: AZ-claude/agent-orchestrator-pilot
   production:
     enabled: false
     targetRepo: /Users/eita/.local/share/agent-orchestrator/targets/slot

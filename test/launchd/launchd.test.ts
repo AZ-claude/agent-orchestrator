@@ -19,8 +19,18 @@ test("LaunchAgent template is valid and contains only supported controls", async
   assert.match(template, /<key>KeepAlive<\/key>/);
   assert.match(template, /__NODE__/);
   assert.match(template, /__WORKDIR__/);
+  assert.match(template, /__LABEL__/);
   const result = await execFile("plutil", ["-lint", join(packaging, `${label}.plist.template`)], { cwd: root });
   assert.match(result.stdout, /OK/);
+});
+
+test("LaunchAgent renderer supports a distinct pilot label and config path", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ao-launchd-render-"));
+  const output = join(home, "pilot.plist");
+  await execFile(process.execPath, [join(packaging, "render.mjs"), join(packaging, `${label}.plist.template`), output, process.execPath, join(root, "bin", "agent-orchestrator.mjs"), root, join(home, "logs"), join(home, "pilot.yaml"), "com.az-claude.agent-orchestrator.pilot"], { cwd: root });
+  const rendered = await readFile(output, "utf8");
+  assert.match(rendered, /com\.az-claude\.agent-orchestrator\.pilot/);
+  assert.match(rendered, new RegExp(`<key>AO_CONFIG_PATH<\\/key>`));
 });
 
 test("verify is read-only and install lifecycle is explicit and disposable", async () => {

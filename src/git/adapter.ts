@@ -2,7 +2,7 @@ import { execFile as nodeExecFile } from "node:child_process";
 import { access, mkdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join, relative, resolve } from "node:path";
-import { PRODUCTION_BASE_BRANCH, PRODUCTION_GITHUB_REPO, PRODUCTION_TARGET_REPO, PRODUCTION_TARGET_ROOT, ProductionTargetConfig } from "../config/index.js";
+import { PERMANENT_PILOT_BASE_BRANCH, PERMANENT_PILOT_GITHUB_REPO, PERMANENT_PILOT_TARGET_REPO, PRODUCTION_BASE_BRANCH, PRODUCTION_GITHUB_REPO, PRODUCTION_TARGET_REPO, PRODUCTION_TARGET_ROOT, PermanentPilotTargetConfig, ProductionTargetConfig } from "../config/index.js";
 
 const execFile = promisify(nodeExecFile);
 
@@ -191,6 +191,39 @@ export class GitAdapter {
     return { targetRepo: target.targetRepo, origin, branch: PRODUCTION_BASE_BRANCH, head, originMaster, remoteMaster };
   }
 
+  async ensurePilotClone(target: PermanentPilotTargetConfig, stateRoot: string): Promise<ProductionTargetFacts> {
+    assertPilotTargetDeclaration(target);
+    if (!(await exists(target.targetRepo))) {
+      await mkdir(PRODUCTION_TARGET_ROOT, { recursive: true });
+      const args = ["clone", "--branch", PERMANENT_PILOT_BASE_BRANCH, "--single-branch", pilotOriginUrl(), target.targetRepo];
+      const cloned = await this.run("git", args);
+      if (cloned.code !== 0) throw new GitCommandError("clone", args, cloned);
+    }
+    return this.synchronizePilotTarget(target, stateRoot);
+  }
+
+  async synchronizePilotTarget(target: PermanentPilotTargetConfig, stateRoot: string): Promise<ProductionTargetFacts> {
+    assertPilotTargetDeclaration(target);
+    await this.assertFixedCloneStatic(target.targetRepo, target.baseBranch, target.githubRepo, stateRoot);
+    await this.must(target.targetRepo, ["fetch", "origin", PERMANENT_PILOT_BASE_BRANCH]);
+    return this.inspectPilotTarget(target, stateRoot);
+  }
+
+  async inspectPilotTarget(target: PermanentPilotTargetConfig, stateRoot: string): Promise<ProductionTargetFacts> {
+    assertPilotTargetDeclaration(target);
+    await this.assertFixedCloneStatic(target.targetRepo, target.baseBranch, target.githubRepo, stateRoot);
+    const [originMaster, remoteMaster] = await Promise.all([
+      this.read(target.targetRepo, ["rev-parse", `refs/remotes/origin/${PERMANENT_PILOT_BASE_BRANCH}`]),
+      this.remoteBranchHead(target.targetRepo, PERMANENT_PILOT_BASE_BRANCH),
+    ]);
+    if (remoteMaster === null) throw new Error("pilot remote main is unavailable");
+    if (originMaster !== remoteMaster) throw new Error("pilot origin/main does not match remote main; refusing stale target");
+    const head = await this.head(target.targetRepo);
+    if (head !== originMaster) throw new Error("pilot base checkout is not at origin/main; refusing automatic reset");
+    const origin = await this.read(target.targetRepo, ["remote", "get-url", "origin"]);
+    return { targetRepo: target.targetRepo, origin, branch: PERMANENT_PILOT_BASE_BRANCH, head, originMaster, remoteMaster };
+  }
+
   async removeWorktree(repo: string, worktree: string): Promise<void> {
     await this.must(repo, ["worktree", "remove", "--force", worktree]);
   }
@@ -263,18 +296,22 @@ export class GitAdapter {
   }
 
   private async assertProductionCloneStatic(target: ProductionTargetConfig, stateRoot: string): Promise<void> {
-    const inside = await this.run("git", ["rev-parse", "--is-inside-work-tree"], { cwd: target.targetRepo });
-    if (inside.code !== 0 || inside.stdout.trim() !== "true") throw new Error("production target is not a Git working tree");
+    await this.assertFixedCloneStatic(target.targetRepo, target.baseBranch, target.githubRepo, stateRoot);
+  }
+
+  private async assertFixedCloneStatic(targetRepo: string, baseBranch: string, githubRepo: string, stateRoot: string): Promise<void> {
+    const inside = await this.run("git", ["rev-parse", "--is-inside-work-tree"], { cwd: targetRepo });
+    if (inside.code !== 0 || inside.stdout.trim() !== "true") throw new Error("fixed runtime target is not a Git working tree");
     const [origin, branch, status, worktreeOutput] = await Promise.all([
-      this.read(target.targetRepo, ["remote", "get-url", "origin"]),
-      this.read(target.targetRepo, ["branch", "--show-current"]),
-      this.read(target.targetRepo, ["status", "--porcelain"]),
-      this.read(target.targetRepo, ["worktree", "list", "--porcelain"]),
+      this.read(targetRepo, ["remote", "get-url", "origin"]),
+      this.read(targetRepo, ["branch", "--show-current"]),
+      this.read(targetRepo, ["status", "--porcelain"]),
+      this.read(targetRepo, ["worktree", "list", "--porcelain"]),
     ]);
-    if (!originMatchesProduction(origin)) throw new Error("production clone origin does not match AZ-claude/slot");
-    if (branch !== PRODUCTION_BASE_BRANCH) throw new Error("production clone must be attached to master; detached HEAD is not allowed");
-    if (status !== "") throw new Error("production clone is dirty");
-    assertProductionWorktreeOwnership(parseWorktrees(worktreeOutput), target.targetRepo, stateRoot);
+    if (!originMatchesRepository(origin, githubRepo)) throw new Error("fixed runtime clone origin identity mismatch");
+    if (branch !== baseBranch) throw new Error(`fixed runtime clone must be attached to ${baseBranch}; detached HEAD is not allowed`);
+    if (status !== "") throw new Error("fixed runtime clone is dirty");
+    assertProductionWorktreeOwnership(parseWorktrees(worktreeOutput), targetRepo, stateRoot, baseBranch);
   }
 }
 
@@ -320,16 +357,27 @@ function assertProductionTargetDeclaration(target: ProductionTargetConfig): void
   }
 }
 
-function productionOriginUrl(): string { return `https://github.com/${PRODUCTION_GITHUB_REPO}.git`; }
-
-function originMatchesProduction(origin: string): boolean {
-  const normalized = origin.trim().replace(/\/$/, "").replace(/\.git$/, "");
-  return normalized === `https://github.com/${PRODUCTION_GITHUB_REPO}` || normalized === `git@github.com:${PRODUCTION_GITHUB_REPO}` || normalized === `ssh://git@github.com/${PRODUCTION_GITHUB_REPO}`;
+function assertPilotTargetDeclaration(target: PermanentPilotTargetConfig): void {
+  if (resolve(target.targetRepo) !== PERMANENT_PILOT_TARGET_REPO || target.baseBranch !== PERMANENT_PILOT_BASE_BRANCH || target.githubRepo !== PERMANENT_PILOT_GITHUB_REPO) {
+    throw new Error("pilot target declaration does not match the v1 agent-orchestrator-pilot boundary");
+  }
 }
 
-function assertProductionWorktreeOwnership(worktrees: readonly { path: string; branch: string }[], targetRepo: string, stateRoot: string): void {
+function productionOriginUrl(): string { return `https://github.com/${PRODUCTION_GITHUB_REPO}.git`; }
+function pilotOriginUrl(): string { return `https://github.com/${PERMANENT_PILOT_GITHUB_REPO}.git`; }
+
+function originMatchesProduction(origin: string): boolean {
+  return originMatchesRepository(origin, PRODUCTION_GITHUB_REPO);
+}
+
+function originMatchesRepository(origin: string, githubRepo: string): boolean {
+  const normalized = origin.trim().replace(/\/$/, "").replace(/\.git$/, "");
+  return normalized === `https://github.com/${githubRepo}` || normalized === `git@github.com:${githubRepo}` || normalized === `ssh://git@github.com/${githubRepo}`;
+}
+
+function assertProductionWorktreeOwnership(worktrees: readonly { path: string; branch: string }[], targetRepo: string, stateRoot: string, baseBranch = PRODUCTION_BASE_BRANCH): void {
   const base = worktrees.find((worktree) => samePath(worktree.path, targetRepo));
-  if (base === undefined || base.branch !== `refs/heads/${PRODUCTION_BASE_BRANCH}`) throw new Error("production base checkout ownership is invalid or detached");
+  if (base === undefined || base.branch !== `refs/heads/${baseBranch}`) throw new Error("fixed runtime base checkout ownership is invalid or detached");
   const permittedRoot = resolve(stateRoot, "worktrees");
   for (const worktree of worktrees) {
     if (samePath(worktree.path, targetRepo)) continue;
